@@ -1,0 +1,57 @@
+{
+  "fns_url": {
+    "description": "Fast Note Sync 服务地址",
+    "type": "string",
+    "hint": "例如 http://192.168.1.10:9002",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "fns_token": {
+    "description": "FNS Token",
+    "type": "string",
+    "hint": "Fast Note Sync 的登录 Token（JWT）",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "fns_vault": {
+    "description": "Vault 名称",
+    "type": "string",
+    "hint": "Fast Note Sync 中的 Vault 名称",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "kb_id": {
+    "description": "目标知识库 ID",
+    "type": "string",
+    "hint": "AstrBot 知识库 ID，留空则自动创建",
+    "default": ""
+  },
+  "kb_name": {
+    "description": "知识库名称",
+    "type": "string",
+    "hint": "自动创建知识库时使用的名称",
+    "default": "Obsidian Vault"
+  },
+  "auto_sync": {
+    "description": "自动同步",
+    "type": "bool",
+    "default": true
+  },
+  "sync_interval": {
+    "description": "同步间隔（秒）",
+    "type": "int",
+    "default": 300
+  },
+  "exclude_patterns": {
+    "description": "排除的文件/文件夹模式",
+    "type": "list",
+    "hint": "支持 glob 模式，如 .obsidian, *.tmp, templates/*",
+    "default": [".obsidian", ".trash", "*.tmp", ".git"]
+  },
+  "restore_deleted": {
+    "description": "自动恢复被删除的文档",
+    "type": "bool",
+    "hint": "开启后，同步时检测知识库中文档是否被手动删除，若删除则重新上传",
+    "default": true
+  }
+}
