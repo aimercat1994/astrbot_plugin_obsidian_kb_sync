@@ -51,11 +51,7 @@ git clone https://github.com/aimercat1994/astrbot_plugin_obsidian_kb_sync.git
 
 ### 获取 FNS Token
 
-```bash
-curl -s -X POST "http://YOUR_FNS_HOST:PORT/api/user/login" \
-  -H "Content-Type: application/json" \
-  -d '{"credentials":"admin","password":"yourpass"}' | jq -r '.data.token'
-```
+打开 Fast Note Sync Service 的管理面板：在浏览器访问 `http://{服务器IP}:9002`，在笔记库管理页面中，点击「授权 Obsidian」生成授权令牌，复制 Token 填入配置。
 
 ## 指令
 
