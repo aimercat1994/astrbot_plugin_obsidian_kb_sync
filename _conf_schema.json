@@ -40,6 +40,7 @@
   "sync_interval": {
     "description": "同步间隔（秒）",
     "type": "int",
+    "hint": "自动同步的时间间隔，单位秒",
     "default": 300
   },
   "exclude_patterns": {
@@ -53,5 +54,23 @@
     "type": "bool",
     "hint": "开启后，同步时检测知识库中文档是否被手动删除，若删除则重新上传",
     "default": true
+  },
+  "max_file_size": {
+    "description": "最大文件大小（KB）",
+    "type": "int",
+    "hint": "超过此大小的笔记将被跳过，0 表示不限制。建议 100-500",
+    "default": 100
+  },
+  "concurrent_fetches": {
+    "description": "并发获取笔记数",
+    "type": "int",
+    "hint": "同时从 FNS 获取笔记内容的并发数，建议 3-10",
+    "default": 5
+  },
+  "retry_count": {
+    "description": "请求重试次数",
+    "type": "int",
+    "hint": "FNS API 请求失败时的重试次数",
+    "default": 3
   }
 }
