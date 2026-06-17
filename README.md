@@ -1,23 +1,32 @@
 # Obsidian 知识库同步插件
 
-通过 [Fast Note Sync Service](https://github.com/your-repo/fast-note-sync) 将 Obsidian 笔记自动同步到 AstrBot 知识库。
+通过 [Fast Note Sync Service](https://github.com/your-repo/fast-note-sync) 将 Obsidian 笔记同步到 AstrBot 知识库。支持暂存层管理、Web Dashboard、选择性同步、增量同步。
 
 ## ✨ 功能特性
 
-- **增量同步**：基于内容 hash 智能跳过未变更笔记，增量同步仅需秒级完成
-- **并发获取**：多路并发从 FNS 拉取笔记内容，默认 5 路并发
+### v3.0.0 — 暂存层 + Dashboard
+
+- **暂存层**：FNS 笔记先同步到本地暂存区（镜像 Obsidian vault 目录结构），再从暂存区推送到知识库
+- **Web Dashboard**（端口 6190）：浏览/编辑暂存文档、勾选同步和预切块、一键推送
+- **选择性同步**：只同步勾选的文档到知识库，未勾选的不消耗 embedding 资源
+- **预切块增量同步**：标记为预切块的文档，更新时只重新 embedding 变化的 chunk，token 消耗降低 90%+
+
+### v2.x — 核心同步
+
+- **增量同步**：基于内容 hash 智能跳过未变更笔记
+- **并发获取**：多路并发从 FNS 拉取笔记内容（默认 5 路）
 - **自动重试**：网络抖动自动指数退避重试（默认 3 次）
 - **文件大小限制**：跳过超大文件避免浪费 embedding 资源
 - **内容清洗**：自动去除 Obsidian 特有语法（`[[wikilinks]]`、`==高亮==`、`%%注释%%` 等）
 - **删除恢复**：检测知识库中文档被手动删除后自动重新上传
+- **双层验证**：即时验证 + 定期全量校验，确保知识库与同步状态一致
 - **排除规则**：支持 glob 模式排除文件/文件夹
-- **手动/自动同步**：支持定时自动同步 + 指令手动触发
 
 ## 📦 安装
 
 1. 在 AstrBot Dashboard → 插件管理 → 安装插件
 2. 输入本仓库地址或插件包上传
-3. 安装依赖（插件会自动安装 `httpx`）
+3. 安装依赖（插件会自动安装 `httpx`、`quart`）
 
 ## ⚙️ 配置
 
@@ -30,6 +39,7 @@
 | `fns_vault` | string | `""` | FNS 中的 Vault 名称 |
 | `kb_id` | string | `""` | 目标 AstrBot 知识库 ID，留空自动创建 |
 | `kb_name` | string | `"Obsidian Vault"` | 自动创建知识库时的名称 |
+| `dashboard_port` | int | `6190` | Dashboard Web UI 端口 |
 | `auto_sync` | bool | `true` | 是否开启自动同步 |
 | `sync_interval` | int | `300` | 自动同步间隔（秒） |
 | `exclude_patterns` | list | `[".obsidian", ".trash", "*.tmp", ".git"]` | 排除模式（glob） |
@@ -37,14 +47,32 @@
 | `max_file_size` | int | `100` | 最大文件大小（KB），超过跳过，`0` 不限制 |
 | `concurrent_fetches` | int | `5` | 并发获取笔记数 |
 | `retry_count` | int | `3` | API 请求失败重试次数 |
+| `verify_interval` | int | `10` | 全量校验间隔（每 N 次同步），`0` 关闭 |
+| `chunk_size` | int | `512` | 增量同步时的文本分块大小（字符） |
+| `chunk_overlap` | int | `50` | 增量同步时的分块重叠大小（字符） |
+
+## 🖥️ Dashboard
+
+启动 AstrBot 后访问 `http://<your-ip>:6190` 打开 Dashboard。
+
+| 功能 | 说明 |
+|------|------|
+| 文件夹树 | 左侧栏，点击文件夹筛选文档 |
+| 文档列表 | 表格展示所有暂存文档，支持搜索/排序 |
+| 同步开关 | 每行一个 toggle，控制是否同步到知识库 |
+| 预切块开关 | 每行一个 toggle，控制是否使用增量同步 |
+| 在线编辑 | 点击文档名打开查看器/编辑器 |
+| 批量操作 | 全选同步、全选预切块、取消全选 |
+| 同步按钮 | 「从 FNS 同步」拉取最新 / 「同步到知识库」推送选中文档 |
+| 状态栏 | 总文档数、已选数、已同步数、上次同步时间 |
 
 ## 🎮 指令
 
 | 指令 | 说明 |
 |------|------|
-| `obsidian_sync` | 手动触发同步（带进度日志） |
-| `obsidian_status` | 查看同步状态、已同步数量、上次同步时间 |
-| `obsidian_reset` | 重置同步状态，下次同步全量重新上传 |
+| `staging_sync` | 从 FNS 同步到暂存区 |
+| `staging_push` | 将选中文档推送到知识库 |
+| `staging_status` | 查看暂存区状态 |
 
 ## 📋 前置要求
 
@@ -53,17 +81,59 @@
 
 ## 🔧 工作原理
 
+### v3 架构（两步同步）
+
 ```
-Obsidian ──(同步)──► FNS Server ──(HTTP API)──► 本插件 ──(embedding)──► AstrBot 知识库
+Obsidian ──(同步)──► FNS Server ──(HTTP API)──► 暂存区 ──(选择性)──► AstrBot 知识库
+                                              (本地 .md)    Dashboard 控制
 ```
 
-1. 从 FNS 获取笔记列表（含 `contentHash`）
-2. 与本地同步状态比对，分类为：新增 / 更新 / 删除 / 未变更 / 跳过
-3. 并发获取需更新笔记的内容
-4. 清洗 Obsidian 语法后上传到 AstrBot 知识库
-5. 保存同步状态，下次增量同步
+1. **FNS → 暂存区**：从 FNS 拉取笔记，写入本地暂存目录（镜像 Obsidian 目录结构）
+2. **用户操作**：在 Dashboard 浏览/编辑文档，勾选要同步的文档和预切块选项
+3. **暂存区 → 知识库**：
+   - `pre_chunk=false`：全量上传，AstrBot 自动切块 embedding
+   - `pre_chunk=true`：增量同步，自己切块 → hash 对比 → 只重新 embedding 变化的 chunk
+
+### 增量同步原理
+
+```
+旧文档（200 chunks）──► 获取旧 chunk 内容 ──► 计算每块 hash
+新内容 ──► 自己切块（MarkdownChunker）──► 计算每块 hash
+对比：3 块变化，197 块未变
+→ 只对 3 块重新 embedding（vec_db.insert）
+→ 197 块保留原有 embedding，零开销
+```
 
 ## 📝 更新日志
+
+### v3.0.0 (2026-06-17)
+
+**🆕 暂存层**
+- FNS 笔记先同步到本地暂存区（镜像 Obsidian vault 目录结构）
+- 暂存区作为 FNS 客户端，支持一键同步
+
+**🖥️ Web Dashboard**
+- 文件夹树 + 文档列表 + Markdown 查看器/编辑器
+- 勾选控制 sync_to_kb（同步到知识库）和 pre_chunk（预切块增量同步）
+- 批量操作：全选同步、全选预切块、取消全选
+- 搜索/筛选功能
+- 状态栏：总文档数、已选数、已同步数
+
+**🧩 增量同步**
+- 预切块文档使用 MarkdownChunker 自己切块
+- 每块算 MD5 hash，对比新旧 chunk
+- 只对变化的 chunk 重新 embedding，未变 chunk 零开销
+- 300KB 文档改 1 段落：embedding 从几百块降到几块，token 消耗降低 90%+
+
+**🔍 双层验证**
+- 即时验证：上传后立即确认 doc_id 存在
+- 定期全量校验：每 N 次同步检查所有 doc_id 是否仍存在
+
+**🆕 新增配置**
+- `dashboard_port`：Dashboard 端口，默认 6190
+- `verify_interval`：全量校验间隔，默认 10
+- `chunk_size`：分块大小，默认 512
+- `chunk_overlap`：分块重叠，默认 50
 
 ### v2.0.0 (2026-06-10)
 
