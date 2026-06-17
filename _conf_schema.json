@@ -90,5 +90,11 @@
     "type": "int",
     "hint": "增量同步时的分块重叠大小，需与知识库分块设置一致。默认 50",
     "default": 50
+  },
+  "dashboard_port": {
+    "description": "Staging Dashboard 端口",
+    "type": "int",
+    "hint": "Web Dashboard 监听端口，默认 6190",
+    "default": 6190
   }
 }

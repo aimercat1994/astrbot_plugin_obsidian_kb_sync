@@ -1,160 +1,116 @@
 """
-AstrBot Obsidian 知识库同步插件 v2
+AstrBot 插件：Obsidian KB Staging Layer
 
-通过 Fast Note Sync Service 获取 Obsidian 笔记，自动同步到 AstrBot 知识库。
-支持增量同步、并发获取、智能跳过、重试机制、手动同步进度反馈等功能。
+在 FNS（Fast Note Sync）和 AstrBot 知识库之间添加一个暂存层（Staging）。
+提供 Web Dashboard 用于浏览、编辑暂存文档，支持选择性推送到知识库。
+
+功能：
+- 从 FNS 拉取所有笔记到本地暂存目录（保留原始内容）
+- Web Dashboard 浏览文件夹/文档、编辑内容、设置元数据
+- 选择性同步：标记 sync_to_kb 的文档推送到 AstrBot 知识库
+- 增量同步：pre_chunk 模式下只重新 embedding 变化的 chunk
 """
 
 import asyncio
 import hashlib
 import json
+import os
 import re
 import time
-from fnmatch import fnmatch
 from pathlib import Path
 from typing import Optional
 
 import httpx
+from quart import Quart, jsonify, request
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.knowledge_base.chunking.markdown import MarkdownChunker
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 
-class ObsidianKBSyncPlugin(Star):
-    """Obsidian 知识库同步插件（Fast Note Sync 客户端）"""
+# ═══════════════════════════════════════════════════════════════════
+#  FNS HTTP 客户端（带重试）
+# ═══════════════════════════════════════════════════════════════════
 
-    def __init__(self, context: Context, config: AstrBotConfig):
-        super().__init__(context)
-        self.config = config
-        self._sync_task: Optional[asyncio.Task] = None
-        self._sync_state: dict = {}
-        self._last_sync_time: float = 0
-        self._sync_count: int = 0
-        self._is_syncing: bool = False
-        self._kb_helper = None  # 缓存 KB helper
 
-        # Fast Note Sync 配置
-        self.fns_url: str = config.get("fns_url", "").rstrip("/")
-        self.fns_token: str = config.get("fns_token", "")
-        self.fns_vault: str = config.get("fns_vault", "")
+class FNSClient:
+    """Fast Note Sync 异步 HTTP 客户端，共享 httpx.AsyncClient 实例。"""
 
-        # 知识库配置
-        self.kb_id: str = config.get("kb_id", "")
-        self.kb_name: str = config.get("kb_name", "Obsidian Vault")
+    def __init__(self, base_url: str, token: str, vault: str,
+                 retry_count: int = 3, concurrency: int = 5):
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.vault = vault
+        self.retry_count = retry_count
+        self.concurrency = concurrency
+        self._client: Optional[httpx.AsyncClient] = None
 
-        # 同步配置
-        self.auto_sync: bool = config.get("auto_sync", True)
-        self.sync_interval: int = config.get("sync_interval", 300)
-        self.exclude_patterns: list = config.get(
-            "exclude_patterns", [".obsidian", ".trash", "*.tmp", ".git"]
-        )
-        self.restore_deleted: bool = config.get("restore_deleted", True)
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+                timeout=httpx.Timeout(30.0, connect=10.0),
+            )
+        return self._client
 
-        # 新增：性能配置
-        self.max_file_size: int = config.get("max_file_size", 100)  # KB，超过此大小跳过
-        self.concurrent_fetches: int = config.get("concurrent_fetches", 5)  # 并发获取笔记数
-        self.retry_count: int = config.get("retry_count", 3)  # 重试次数
-        self.verify_interval: int = config.get("verify_interval", 10)  # 每 N 次同步全量校验
-        self.chunk_size: int = config.get("chunk_size", 512)  # 分块大小
-        self.chunk_overlap: int = config.get("chunk_overlap", 50)  # 分块重叠
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
-        # Markdown 分块器（与 AstrBot 知识库使用相同逻辑）
-        self._chunker = MarkdownChunker(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-        )
+    def _headers(self) -> dict:
+        return {"token": self.token}
 
-        # 数据目录
-        self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_obsidian_kb_sync"
-        self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._state_file = self._data_dir / "sync_state.json"
-
-        self._load_state()
-        logger.info(
-            f"Obsidian KB Sync v2 初始化完成 | FNS: {self.fns_url} | "
-            f"Vault: {self.fns_vault} | 并发: {self.concurrent_fetches} | "
-            f"最大文件: {self.max_file_size}KB"
-        )
-
-    # ── 状态管理 ──────────────────────────────────────────────
-
-    def _load_state(self):
-        try:
-            if self._state_file.exists():
-                with open(self._state_file, "r", encoding="utf-8") as f:
-                    self._sync_state = json.load(f)
-                logger.info(f"已加载 {len(self._sync_state)} 条同步记录")
-        except Exception as e:
-            logger.error(f"加载同步状态失败: {e}")
-            self._sync_state = {}
-
-    async def _save_state(self):
-        """异步保存状态，避免阻塞事件循环"""
-        try:
-            content = json.dumps(self._sync_state, ensure_ascii=False, indent=2)
-            # 使用 run_in_executor 避免阻塞
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._write_state_sync, content)
-        except Exception as e:
-            logger.error(f"保存同步状态失败: {e}")
-
-    def _write_state_sync(self, content: str):
-        with open(self._state_file, "w", encoding="utf-8") as f:
-            f.write(content)
-
-    # ── 重试机制 ──────────────────────────────────────────────
-
-    async def _retry_request(self, client: httpx.AsyncClient, method: str, url: str,
-                             max_retries: int = None, **kwargs) -> Optional[httpx.Response]:
-        """带重试的 HTTP 请求"""
+    async def _retry_request(self, method: str, url: str,
+                              max_retries: Optional[int] = None, **kwargs) -> Optional[httpx.Response]:
+        """带指数退避重试的 HTTP 请求。401 不重试。"""
         retries = max_retries or self.retry_count
+        client = await self._get_client()
         for attempt in range(retries):
             try:
                 resp = await getattr(client, method)(url, **kwargs)
                 if resp.status_code == 401:
-                    logger.error("FNS Token 无效或已过期")
+                    logger.error("FNS Token 无效或已过期 (401)")
                     return None
                 if resp.status_code == 200:
                     return resp
                 if attempt < retries - 1:
                     wait = 2 ** attempt
-                    logger.warning(f"请求 {url} 返回 {resp.status_code}，{wait}s 后重试 ({attempt+1}/{retries})")
+                    logger.warning(
+                        f"FNS 请求 {url} 返回 {resp.status_code}，"
+                        f"{wait}s 后重试 ({attempt + 1}/{retries})"
+                    )
                     await asyncio.sleep(wait)
                     continue
-                logger.warning(f"请求 {url} 最终返回 {resp.status_code}")
+                logger.warning(f"FNS 请求 {url} 最终返回 {resp.status_code}")
                 return resp
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
                 if attempt < retries - 1:
                     wait = 2 ** attempt
-                    logger.warning(f"请求 {url} 失败: {e}，{wait}s 后重试 ({attempt+1}/{retries})")
+                    logger.warning(
+                        f"FNS 请求 {url} 失败: {e}，{wait}s 后重试 ({attempt + 1}/{retries})"
+                    )
                     await asyncio.sleep(wait)
                 else:
-                    logger.error(f"请求 {url} 最终失败: {e}")
+                    logger.error(f"FNS 请求 {url} 最终失败: {e}")
                     return None
             except Exception as e:
-                logger.error(f"请求 {url} 异常: {type(e).__name__}: {e}")
+                logger.error(f"FNS 请求 {url} 异常: {type(e).__name__}: {e}")
                 return None
         return None
 
-    # ── Fast Note Sync 客户端 ─────────────────────────────────
-
-    def _fns_headers(self) -> dict:
-        return {"token": self.fns_token}
-
-    async def _fns_list_notes(self, client: httpx.AsyncClient) -> list[dict]:
-        """列出 vault 中所有笔记（不含内容）"""
-        notes = []
+    async def list_notes(self) -> list[dict]:
+        """列出 vault 中所有笔记（分页，不含内容）。"""
+        notes: list[dict] = []
         page = 1
         while True:
             resp = await self._retry_request(
-                client, "get",
-                f"{self.fns_url}/api/notes",
-                params={"vault": self.fns_vault, "page": page, "pageSize": 100},
-                headers=self._fns_headers(),
-                timeout=30.0,
+                "get",
+                f"{self.base_url}/api/notes",
+                params={"vault": self.vault, "page": page, "pageSize": 100},
+                headers=self._headers(),
             )
             if resp is None:
                 break
@@ -169,71 +125,395 @@ class ObsidianKBSyncPlugin(Star):
             page += 1
         return notes
 
-    async def _fns_get_note(self, client: httpx.AsyncClient, path: str) -> Optional[str]:
-        """获取单条笔记内容"""
+    async def get_note(self, path: str) -> Optional[str]:
+        """获取单条笔记内容。"""
         resp = await self._retry_request(
-            client, "get",
-            f"{self.fns_url}/api/note",
-            params={"vault": self.fns_vault, "path": path},
-            headers=self._fns_headers(),
-            timeout=30.0,
+            "get",
+            f"{self.base_url}/api/note",
+            params={"vault": self.vault, "path": path},
+            headers=self._headers(),
         )
         if resp is not None:
             return resp.json().get("data", {}).get("content", "")
         return None
 
-    async def _fns_get_notes_concurrent(self, client: httpx.AsyncClient,
-                                        paths: list[str]) -> dict[str, Optional[str]]:
-        """并发获取多条笔记内容"""
-        sem = asyncio.Semaphore(self.concurrent_fetches)
-        results = {}
+    async def get_notes_concurrent(self, paths: list[str]) -> dict[str, Optional[str]]:
+        """并发获取多条笔记内容。"""
+        sem = asyncio.Semaphore(self.concurrency)
+        results: dict[str, Optional[str]] = {}
 
-        async def fetch_one(path: str):
+        async def fetch_one(p: str):
             async with sem:
-                content = await self._fns_get_note(client, path)
-                results[path] = content
+                content = await self.get_note(p)
+                results[p] = content
 
         tasks = [fetch_one(p) for p in paths]
         await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
-    # ── 内容清洗 ──────────────────────────────────────────────
 
-    def _strip_frontmatter(self, content: str) -> str:
-        return re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL).strip()
+# ═══════════════════════════════════════════════════════════════════
+#  内容清洗（Obsidian → 纯 Markdown）
+# ═══════════════════════════════════════════════════════════════════
 
-    def _clean_obsidian_syntax(self, content: str) -> str:
-        content = re.sub(r"!\[\[([^\]]+)\]\]", r"[\1]", content)
-        content = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", content)
-        content = re.sub(r"\[\[([^\]]+)\]\]", r"\1", content)
-        content = re.sub(r"^>\s*\[![^\]]*\]\s*", "", content, flags=re.MULTILINE)
-        content = re.sub(r"==([^=]+)==", r"\1", content)
-        content = re.sub(r"%%.*?%%", "", content, flags=re.DOTALL)
-        return content
 
-    def _should_exclude(self, note_path: str) -> bool:
-        for pattern in self.exclude_patterns:
-            if fnmatch(note_path, pattern) or fnmatch(note_path.split("/")[-1], pattern):
-                return True
-            for part in note_path.split("/"):
-                if fnmatch(part, pattern):
+def clean_obsidian_content(content: str) -> str:
+    """将 Obsidian 扩展 Markdown 转为纯 Markdown。
+
+    清洗步骤：
+    1. 去除 YAML frontmatter
+    2. 转换 wikilinks → 普通链接/文本
+    3. 去除 callouts 标记
+    4. 去除高亮 ==text==
+    5. 去除注释 %%text%%
+    """
+    # 1. 去除 frontmatter
+    content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL).strip()
+
+    # 2. 转换 wikilinks
+    # ![[image]] → [image]
+    content = re.sub(r"!\[\[([^\]]+)\]\]", r"[\1]", content)
+    # [[target|display]] → display
+    content = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", content)
+    # [[target]] → target
+    content = re.sub(r"\[\[([^\]]+)\]\]", r"\1", content)
+
+    # 3. 去除 callouts 标记（> [!type] → 去掉标记行首）
+    content = re.sub(r"^>\s*\[[^\]]*\]\s*", "", content, flags=re.MULTILINE)
+
+    # 4. 去除高亮
+    content = re.sub(r"==([^=]+)==", r"\1", content)
+
+    # 5. 去除注释
+    content = re.sub(r"%%.*?%%", "", content, flags=re.DOTALL)
+
+    return content
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  StagingManager：本地暂存目录管理
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _default_metadata() -> dict:
+    """每篇文档的默认元数据模板。"""
+    return {
+        "fns_hash": "",          # FNS 返回的 contentHash（可能为空）
+        "content_hash": "",      # 文件内容 MD5
+        "size_kb": 0.0,          # 文件大小 KB
+        "sync_to_kb": False,     # 是否标记推送到知识库
+        "pre_chunk": True,       # 是否使用增量分块同步
+        "chunk_hashes": [],      # 上次同步的 chunk hash 列表
+        "kb_doc_id": "",         # 知识库中的 doc_id
+        "last_sync": 0.0,        # 上次推送到 KB 的时间戳
+        "staged_at": 0.0,        # 暂存时间戳
+    }
+
+
+class StagingManager:
+    """管理本地暂存目录，镜像 Obsidian vault 结构。"""
+
+    def __init__(self, data_dir: Path, max_file_size_kb: int = 100):
+        self.staging_dir = data_dir / "staging"
+        self.metadata_file = data_dir / "staging_metadata.json"
+        self.max_file_size_kb = max_file_size_kb
+        self.staging_dir.mkdir(parents=True, exist_ok=True)
+
+        self._metadata: dict[str, dict] = {}
+        self._load_metadata_sync()
+
+    # ── 元数据读写（同步加载，异步保存） ─────────────────────────
+
+    def _load_metadata_sync(self):
+        """同步加载元数据文件。"""
+        try:
+            if self.metadata_file.exists():
+                with open(self.metadata_file, "r", encoding="utf-8") as f:
+                    self._metadata = json.load(f)
+                logger.info(f"Staging: 已加载 {len(self._metadata)} 条元数据")
+        except Exception as e:
+            logger.error(f"Staging: 加载元数据失败: {e}")
+            self._metadata = {}
+
+    async def save_metadata(self):
+        """异步保存元数据（使用 run_in_executor 避免阻塞）。"""
+        try:
+            content = json.dumps(self._metadata, ensure_ascii=False, indent=2)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._write_metadata_sync, content)
+        except Exception as e:
+            logger.error(f"Staging: 保存元数据失败: {e}")
+
+    def _write_metadata_sync(self, content: str):
+        with open(self.metadata_file, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    # ── 文档操作 ────────────────────────────────────────────────
+
+    def _doc_path(self, path: str) -> Path:
+        """获取暂存文件的完整路径。"""
+        return self.staging_dir / path
+
+    def get_document(self, path: str) -> Optional[str]:
+        """读取暂存文档内容。"""
+        fp = self._doc_path(path)
+        if not fp.exists():
+            return None
+        try:
+            return fp.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Staging: 读取文档失败 {path}: {e}")
+            return None
+
+    def save_document(self, path: str, content: str) -> bool:
+        """保存编辑后的文档内容（更新 content_hash 和 size_kb）。"""
+        fp = self._doc_path(path)
+        try:
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content, encoding="utf-8")
+            # 更新元数据
+            meta = self._metadata.get(path, _default_metadata())
+            meta["content_hash"] = hashlib.md5(content.encode("utf-8")).hexdigest()
+            meta["size_kb"] = len(content.encode("utf-8")) / 1024
+            self._metadata[path] = meta
+            return True
+        except Exception as e:
+            logger.error(f"Staging: 保存文档失败 {path}: {e}")
+            return False
+
+    def get_metadata(self, path: str) -> Optional[dict]:
+        """获取文档元数据。"""
+        return self._metadata.get(path)
+
+    def update_metadata(self, path: str, updates: dict) -> bool:
+        """更新文档元数据字段。"""
+        if path not in self._metadata:
+            return False
+        self._metadata[path].update(updates)
+        return True
+
+    def list_documents(self, folder: Optional[str] = None) -> list[dict]:
+        """列出暂存文档及其元数据。可选按文件夹过滤。"""
+        results = []
+        for path, meta in self._metadata.items():
+            if folder and not path.startswith(folder):
+                continue
+            results.append({"path": path, **meta})
+        results.sort(key=lambda x: x["path"])
+        return results
+
+    def get_folder_tree(self) -> dict:
+        """构建文件夹树结构（用于侧边栏导航）。"""
+        tree: dict = {}
+        for path in self._metadata:
+            parts = path.split("/")
+            node = tree
+            # 遍历目录部分
+            for part in parts[:-1]:
+                if part not in node:
+                    node[part] = {"__files__": []}
+                node = node[part]
+            # 添加文件
+            if "__files__" not in node:
+                node["__files__"] = []
+            node["__files__"].append({
+                "name": parts[-1],
+                "path": path,
+                "size_kb": self._metadata[path].get("size_kb", 0),
+                "sync_to_kb": self._metadata[path].get("sync_to_kb", False),
+            })
+        return tree
+
+    def get_stats(self) -> dict:
+        """获取暂存统计信息。"""
+        total = len(self._metadata)
+        selected = sum(1 for m in self._metadata.values() if m.get("sync_to_kb"))
+        synced = sum(1 for m in self._metadata.values() if m.get("kb_doc_id"))
+        pre_chunked = sum(1 for m in self._metadata.values() if m.get("pre_chunk"))
+        total_size = sum(m.get("size_kb", 0) for m in self._metadata.values())
+        return {
+            "total_documents": total,
+            "selected_for_sync": selected,
+            "synced_to_kb": synced,
+            "pre_chunked": pre_chunked,
+            "total_size_kb": round(total_size, 2),
+        }
+
+    # ── FNS 同步 ────────────────────────────────────────────────
+
+    async def sync_from_fns(self, fns_client: FNSClient,
+                            exclude_patterns: Optional[list[str]] = None) -> dict:
+        """从 FNS 拉取所有笔记到暂存目录。
+
+        返回 {total, new, updated, unchanged, skipped, errors, duration}。
+        """
+        from fnmatch import fnmatch
+
+        exclude_patterns = exclude_patterns or []
+        result = {
+            "total": 0, "new": 0, "updated": 0,
+            "unchanged": 0, "skipped": 0, "errors": 0,
+            "start_time": time.time(),
+        }
+
+        # 1. 列出所有笔记
+        notes = await fns_client.list_notes()
+        result["total"] = len(notes)
+        logger.info(f"Staging: FNS 返回 {len(notes)} 条笔记")
+
+        if not notes:
+            result["duration"] = time.time() - result["start_time"]
+            return result
+
+        # 2. 过滤排除项
+        def should_exclude(note_path: str) -> bool:
+            for pattern in exclude_patterns:
+                if fnmatch(note_path, pattern) or fnmatch(note_path.split("/")[-1], pattern):
                     return True
-        return False
+                for part in note_path.split("/"):
+                    if fnmatch(part, pattern):
+                        return True
+            return False
 
-    # ── AstrBot 知识库内部 API ────────────────────────────────
+        filtered_notes = [n for n in notes if n.get("path") and not should_exclude(n["path"])]
+
+        # 3. 分类：需要获取内容 vs 可跳过
+        need_content_paths: list[str] = []
+        for note in filtered_notes:
+            path = note["path"]
+            remote_hash = note.get("contentHash", "")
+            existing = self._metadata.get(path)
+
+            # 快速跳过：fns_hash 未变
+            if existing and remote_hash and existing.get("fns_hash") == remote_hash:
+                result["unchanged"] += 1
+                continue
+
+            # 无 remote_hash 时，检查本地 content_hash（需要获取内容来比对）
+            need_content_paths.append(path)
+
+        # 4. 并发获取需要处理的笔记内容
+        if need_content_paths:
+            logger.info(f"Staging: 需获取 {len(need_content_paths)} 条笔记内容")
+            contents = await fns_client.get_notes_concurrent(need_content_paths)
+        else:
+            contents = {}
+
+        # 5. 处理每条笔记
+        notes_by_path = {n["path"]: n for n in filtered_notes}
+
+        for path in need_content_paths:
+            content = contents.get(path)
+            if content is None:
+                result["errors"] += 1
+                continue
+
+            # 文件大小检查（基于原始内容字节数）
+            content_bytes = content.encode("utf-8")
+            content_size_kb = len(content_bytes) / 1024
+            if self.max_file_size_kb > 0 and content_size_kb > self.max_file_size_kb:
+                result["skipped"] += 1
+                logger.debug(f"Staging: 跳过 {path}（{content_size_kb:.0f}KB > {self.max_file_size_kb}KB）")
+                continue
+
+            if not content.strip():
+                result["unchanged"] += 1
+                continue
+
+            # 内容 hash 比对
+            content_hash = hashlib.md5(content_bytes).hexdigest()
+            existing = self._metadata.get(path)
+            if existing and existing.get("content_hash") == content_hash:
+                result["unchanged"] += 1
+                # 更新 fns_hash
+                remote_hash = notes_by_path[path].get("contentHash", "")
+                if remote_hash:
+                    self._metadata[path]["fns_hash"] = remote_hash
+                continue
+
+            # 写入暂存文件（保留原始内容）
+            fp = self._doc_path(path)
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content, encoding="utf-8")
+
+            # 更新元数据
+            remote_hash = notes_by_path[path].get("contentHash", "")
+            # FNS contentHash 可能为空 → 用内容 MD5 作为 fallback
+            fns_hash = remote_hash if remote_hash else content_hash
+
+            old_meta = self._metadata.get(path, _default_metadata())
+            old_meta.update({
+                "fns_hash": fns_hash,
+                "content_hash": content_hash,
+                "size_kb": content_size_kb,
+                "staged_at": time.time(),
+            })
+            self._metadata[path] = old_meta
+
+            if existing:
+                result["updated"] += 1
+            else:
+                result["new"] += 1
+
+        # 6. 清理已删除的笔记（暂存中有但 FNS 中已不存在）
+        fns_paths = {n["path"] for n in filtered_notes}
+        stale_paths = [p for p in list(self._metadata.keys()) if p not in fns_paths]
+        for p in stale_paths:
+            fp = self._doc_path(p)
+            if fp.exists():
+                fp.unlink()
+            del self._metadata[p]
+
+        # 7. 保存元数据
+        await self.save_metadata()
+
+        result["duration"] = time.time() - result["start_time"]
+        logger.info(
+            f"Staging: 同步完成 | 新增 {result['new']}, 更新 {result['updated']}, "
+            f"未变 {result['unchanged']}, 跳过 {result['skipped']}, "
+            f"错误 {result['errors']}, 删除 {len(stale_paths)}, "
+            f"耗时 {result['duration']:.1f}s"
+        )
+        return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SyncEngine：Staging → AstrBot 知识库同步
+# ═══════════════════════════════════════════════════════════════════
+
+
+class SyncEngine:
+    """将暂存中标记的文档同步到 AstrBot 知识库。
+
+    - pre_chunk=True: 增量同步（分块 + hash 比对 + 只重新 embedding 变化的 chunk）
+    - pre_chunk=False: 全量上传
+    """
+
+    def __init__(self, staging: StagingManager, context: Context,
+                 kb_id: str, kb_name: str,
+                 chunk_size: int = 512, chunk_overlap: int = 50):
+        self.staging = staging
+        self.context = context
+        self.kb_id = kb_id
+        self.kb_name = kb_name
+        self._kb_helper = None
+        self._chunker = MarkdownChunker(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        self._is_syncing = False
+
+    # ── KB Helper ───────────────────────────────────────────────
 
     async def _get_kb_helper(self, force_refresh: bool = False):
-        """获取 KBHelper 实例（带缓存）"""
         if self._kb_helper and not force_refresh:
             return self._kb_helper
-
         kb_mgr = self.context.kb_manager
         if self.kb_id:
             helper = await kb_mgr.get_kb(self.kb_id)
             if helper:
                 self._kb_helper = helper
                 return helper
-        # 按名称查找
         helper = await kb_mgr.get_kb_by_name(self.kb_name)
         if helper:
             self.kb_id = helper.kb.kb_id
@@ -242,12 +522,9 @@ class ObsidianKBSyncPlugin(Star):
         return None
 
     async def _ensure_knowledge_base(self):
-        """确保知识库存在，返回 KBHelper"""
         helper = await self._get_kb_helper()
         if helper:
             return helper
-
-        # 无 kb_id 时尝试创建
         kb_mgr = self.context.kb_manager
         try:
             provider_mgr = self.context.provider_manager
@@ -257,49 +534,41 @@ class ObsidianKBSyncPlugin(Star):
                     embedding_id = p.id()
                     break
             if not embedding_id:
-                logger.error("未找到 Embedding 模型提供商，请先在 AstrBot 中配置")
+                logger.error("Staging: 未找到 Embedding 模型提供商")
                 return None
-
             helper = await kb_mgr.create_kb(
                 kb_name=self.kb_name,
-                description="Obsidian 笔记库自动同步",
+                description="Obsidian 笔记库暂存同步",
                 embedding_provider_id=embedding_id,
             )
             self.kb_id = helper.kb.kb_id
             self._kb_helper = helper
-            logger.info(f"已创建知识库: {self.kb_name} (ID: {self.kb_id})")
+            logger.info(f"Staging: 已创建知识库 {self.kb_name} (ID: {self.kb_id})")
             return helper
         except Exception as e:
-            logger.error(f"创建知识库失败: {e}")
+            logger.error(f"Staging: 创建知识库失败: {e}")
             return None
 
-    async def _upload_document(self, note_path: str, content: str) -> Optional[str]:
-        """上传文档到知识库，返回 doc_id"""
+    # ── 文档级操作 ──────────────────────────────────────────────
+
+    async def _upload_document(self, file_name: str, content: str) -> Optional[str]:
+        """全量上传文档到知识库，返回 doc_id。"""
         helper = await self._get_kb_helper()
         if not helper:
             return None
         try:
-            file_name = note_path.split("/")[-1]
+            # file_name 必须以 .md 结尾
             if not file_name.endswith(".md"):
                 file_name += ".md"
+            # file_content 必须是 bytes
             doc = await helper.upload_document(
                 file_name=file_name,
                 file_content=content.encode("utf-8"),
                 file_type="md",
             )
-            # 即时验证：确认文档确实存在于知识库
-            try:
-                verified = await helper.get_document(doc.doc_id)
-                if verified:
-                    return doc.doc_id
-                else:
-                    logger.error(f"上传成功但验证失败（文档不存在）: {note_path}")
-                    return None
-            except Exception as ve:
-                logger.warning(f"上传验证异常（仍记录）: {note_path}: {ve}")
-                return doc.doc_id
+            return doc.doc_id
         except Exception as e:
-            logger.error(f"上传文档失败 {note_path}: {e}")
+            logger.error(f"Staging: 上传文档失败 {file_name}: {e}")
             return None
 
     async def _delete_document(self, doc_id: str) -> bool:
@@ -310,72 +579,51 @@ class ObsidianKBSyncPlugin(Star):
             await helper.delete_document(doc_id)
             return True
         except Exception as e:
-            logger.warning(f"删除文档失败 {doc_id}: {e}")
+            logger.warning(f"Staging: 删除文档失败 {doc_id}: {e}")
             return False
 
-    # ── 增量同步 ─────────────────────────────────────────────
-
-    async def _upload_incremental(self, note_path: str, content: str,
-                                  old_doc_id: str) -> tuple[Optional[str], list[str]]:
-        """增量上传：只重新 embedding 变化的 chunk，保留未变 chunk。
-        返回 (doc_id, new_chunk_hashes)"""
+    async def _upload_incremental(self, path: str, cleaned_content: str,
+                                   old_doc_id: str) -> tuple[Optional[str], list[str]]:
+        """增量上传：只重新 embedding 变化的 chunk。返回 (doc_id, new_chunk_hashes)。"""
         helper = await self._get_kb_helper()
         if not helper:
             return None, []
 
         try:
-            # 1. 用与 AstrBot 相同的 MarkdownChunker 分块
-            new_chunks = await self._chunker.chunk(content)
+            new_chunks = await self._chunker.chunk(cleaned_content)
             if not new_chunks:
                 return None, []
 
-            # 2. 计算每块内容 hash
             new_chunk_hashes = [hashlib.md5(c.encode("utf-8")).hexdigest() for c in new_chunks]
 
-            # 3. 获取旧文档的所有 chunk
             old_chunks_data = await helper.get_chunks_by_doc_id(old_doc_id, limit=9999)
-
-            # 旧 chunk 的 hash → chunk_id 映射
             old_hash_to_id = {}
             for chunk in old_chunks_data:
                 chunk_hash = hashlib.md5(chunk["content"].encode("utf-8")).hexdigest()
                 old_hash_to_id[chunk_hash] = chunk["chunk_id"]
 
-            # 4. 对比差异
-            # 找出需要重新 embedding 的 chunk（新增或内容变化）
-            changed_indices = []
-            for i, h in enumerate(new_chunk_hashes):
-                if h not in old_hash_to_id:
-                    changed_indices.append(i)
-
-            # 找出需要删除的旧 chunk（不再存在的内容）
+            # 找出变化的 chunk
+            changed_indices = [i for i, h in enumerate(new_chunk_hashes) if h not in old_hash_to_id]
             new_hash_set = set(new_chunk_hashes)
-            chunks_to_delete = [
-                cid for h, cid in old_hash_to_id.items()
-                if h not in new_hash_set
-            ]
+            chunks_to_delete = [cid for h, cid in old_hash_to_id.items() if h not in new_hash_set]
 
             unchanged = len(new_chunks) - len(changed_indices)
             logger.info(
-                f"增量分块: {len(new_chunks)} 块, "
-                f"{unchanged} 未变, {len(changed_indices)} 需重嵌, "
-                f"{len(chunks_to_delete)} 待删除"
+                f"Staging: 增量分块 {path} | {len(new_chunks)} 块, "
+                f"{unchanged} 未变, {len(changed_indices)} 需重嵌, {len(chunks_to_delete)} 待删除"
             )
 
-            # 无需变更时直接返回
             if not changed_indices and not chunks_to_delete:
                 return old_doc_id, new_chunk_hashes
 
             vec_db = helper.vec_db
 
-            # 5. 删除不再存在的旧 chunk
             for chunk_id in chunks_to_delete:
                 try:
                     await vec_db.delete(chunk_id)
                 except Exception:
                     pass
 
-            # 6. 重新 embedding 变化的 chunk 并插入 vec_db
             for i in changed_indices:
                 await vec_db.insert(
                     content=new_chunks[i],
@@ -386,7 +634,7 @@ class ObsidianKBSyncPlugin(Star):
                     },
                 )
 
-            # 7. 更新文档元数据（chunk_count）
+            # 更新文档元数据
             try:
                 doc = await helper.get_document(old_doc_id)
                 if doc:
@@ -396,87 +644,28 @@ class ObsidianKBSyncPlugin(Star):
                             session.add(doc)
                             await session.commit()
             except Exception as e:
-                logger.warning(f"更新文档元数据失败: {e}")
+                logger.warning(f"Staging: 更新文档 chunk_count 失败: {e}")
 
-            # 8. 刷新知识库统计
             await helper.kb_db.update_kb_stats(kb_id=self.kb_id, vec_db=vec_db)
             await helper.refresh_kb()
 
             return old_doc_id, new_chunk_hashes
 
         except Exception as e:
-            logger.error(f"增量上传失败 {note_path}: {e}", exc_info=True)
+            logger.error(f"Staging: 增量上传失败 {path}: {e}", exc_info=True)
             return None, []
 
-    async def _batch_check_docs_exist(self, doc_ids: list[str]) -> dict[str, bool]:
-        """批量检查文档是否存在（并发）"""
-        if not doc_ids:
-            return {}
-        helper = await self._get_kb_helper()
-        if not helper:
-            return {did: False for did in doc_ids}
+    # ── 主同步流程 ──────────────────────────────────────────────
 
-        results = {}
-        sem = asyncio.Semaphore(10)
-
-        async def check_one(doc_id: str):
-            async with sem:
-                try:
-                    doc = await helper.get_document(doc_id)
-                    results[doc_id] = doc is not None
-                except Exception:
-                    results[doc_id] = False
-
-        tasks = [check_one(did) for did in doc_ids]
-        await asyncio.gather(*tasks, return_exceptions=True)
-        return results
-
-    # ── 核心同步逻辑 ──────────────────────────────────────────
-
-    async def _verify_all_doc_ids(self) -> int:
-        """定期全量校验：检查 sync_state 中所有 doc_id 是否仍存在于知识库。
-        返回被清除的条目数（这些条目将在下次同步时重新上传）。"""
-        helper = await self._get_kb_helper()
-        if not helper:
-            return 0
-
-        tracked = {
-            p: v["doc_id"]
-            for p, v in self._sync_state.items()
-            if v.get("doc_id")
-        }
-        if not tracked:
-            return 0
-
-        logger.info(f"全量校验: 检查 {len(tracked)} 个 doc_id...")
-        existence = await self._batch_check_docs_exist(list(tracked.values()))
-
-        removed = 0
-        for path, doc_id in tracked.items():
-            if not existence.get(doc_id, True):
-                logger.warning(f"校验发现文档已丢失，将重新上传: {path}")
-                del self._sync_state[path]
-                removed += 1
-
-        if removed:
-            logger.warning(f"全量校验完成: {removed} 个文档已从知识库丢失，将在下次同步时重新上传")
-        else:
-            logger.info(f"全量校验完成: 全部 {len(tracked)} 个文档正常")
-        return removed
-
-    async def _do_sync(self, progress_callback=None) -> dict:
-        if not self.fns_url or not self.fns_vault:
-            return {"error": "未配置 Fast Note Sync 地址或 Vault 名称"}
-        if not self.fns_token:
-            return {"error": "未配置 FNS Token"}
+    async def sync_to_kb(self) -> dict:
+        """将暂存中 sync_to_kb=True 的文档推送到 AstrBot 知识库。"""
         if self._is_syncing:
             return {"error": "正在同步中，请稍候"}
 
         self._is_syncing = True
         result = {
-            "total": 0, "new": 0, "updated": 0, "deleted": 0,
-            "unchanged": 0, "skipped_size": 0, "errors": 0,
-            "verify_removed": 0,
+            "total": 0, "new": 0, "updated": 0,
+            "unchanged": 0, "errors": 0,
             "start_time": time.time(),
         }
 
@@ -485,234 +674,610 @@ class ObsidianKBSyncPlugin(Star):
             if not kb_helper:
                 return {"error": "无法创建或找到 AstrBot 知识库"}
 
-            async with httpx.AsyncClient() as client:
-                # 1. 获取笔记列表
-                notes = await self._fns_list_notes(client)
-                result["total"] = len(notes)
-                logger.info(f"FNS 返回 {len(notes)} 条笔记")
+            selected_docs = self.staging.list_documents()
+            # 只处理 sync_to_kb=True 的文档
+            selected_docs = [d for d in selected_docs if d.get("sync_to_kb")]
+            result["total"] = len(selected_docs)
 
-                if not notes:
-                    await self._save_state()
-                    result["duration"] = time.time() - result["start_time"]
-                    return result
+            if not selected_docs:
+                result["duration"] = time.time() - result["start_time"]
+                return result
 
-                # 2. 过滤排除项
-                current_notes = {}
-                for note in notes:
-                    path = note.get("path", "")
-                    if path and not self._should_exclude(path):
-                        current_notes[path] = note
+            for doc_info in selected_docs:
+                path = doc_info["path"]
+                meta = doc_info
 
-                tracked_paths = set(self._sync_state.keys())
-                current_paths = set(current_notes.keys())
+                # 读取暂存的原始内容
+                raw_content = self.staging.get_document(path)
+                if raw_content is None:
+                    result["errors"] += 1
+                    continue
 
-                # 3. 批量删除已移除的笔记
-                deleted_paths = tracked_paths - current_paths
-                if deleted_paths:
-                    doc_ids_to_delete = [
-                        (p, self._sync_state[p].get("doc_id"))
-                        for p in deleted_paths if self._sync_state[p].get("doc_id")
-                    ]
-                    for path, doc_id in doc_ids_to_delete:
-                        if await self._delete_document(doc_id):
-                            result["deleted"] += 1
-                        del self._sync_state[path]
-                    for p in deleted_paths - {dp for dp, _ in doc_ids_to_delete}:
-                        del self._sync_state[p]
+                # 清洗内容（同步到 KB 时才清洗）
+                cleaned = clean_obsidian_content(raw_content)
+                if not cleaned.strip():
+                    result["unchanged"] += 1
+                    continue
 
-                # 4. 分类处理：需要更新 vs 可跳过
-                need_content_paths = []  # 需要获取内容的路径
-                unchanged_paths = []     # 未变更的路径
+                cleaned_hash = hashlib.md5(cleaned.encode("utf-8")).hexdigest()
 
-                for path, note_info in current_notes.items():
-                    remote_hash = note_info.get("contentHash", "")
-                    tracked = self._sync_state.get(path)
+                # 检查是否需要更新（对比清洗后的内容 hash）
+                # 使用 content_hash 作为原始 hash 的参考，但真正的判断应基于清洗后的 hash
+                # 如果已有 kb_doc_id 且内容未变 → 跳过
+                old_kb_doc_id = meta.get("kb_doc_id", "")
+                old_chunk_hashes = meta.get("chunk_hashes", [])
 
-                    # 快速跳过：远端 hash 未变
-                    if tracked and remote_hash and tracked.get("remote_hash") == remote_hash:
-                        unchanged_paths.append(path)
-                        continue
-
-                    # 无 remote_hash 时，检查本地 content_hash
-                    if tracked and not remote_hash and tracked.get("hash"):
-                        need_content_paths.append(path)
-                        continue
-
-                    # 新笔记或有变更
-                    need_content_paths.append(path)
-
-                # 5. 批量检查 restore_deleted（仅对 unchanged 的笔记）
-                if self.restore_deleted and unchanged_paths:
-                    tracked_doc_ids = {
-                        p: self._sync_state[p]["doc_id"]
-                        for p in unchanged_paths
-                        if self._sync_state[p].get("doc_id")
-                    }
-                    if tracked_doc_ids:
-                        existence = await self._batch_check_docs_exist(list(tracked_doc_ids.values()))
-                        for path in unchanged_paths:
-                            doc_id = tracked_doc_ids.get(path)
-                            if doc_id and not existence.get(doc_id, True):
-                                # 文档已从知识库删除，需要重新上传
-                                logger.info(f"检测到文档已从知识库删除，将重新上传: {path}")
-                                del self._sync_state[path]
-                                need_content_paths.append(path)
-                            else:
-                                result["unchanged"] += 1
-                    else:
-                        result["unchanged"] += len(unchanged_paths)
-                else:
-                    result["unchanged"] += len(unchanged_paths)
-
-                # 6. 并发获取需要处理的笔记内容
-                if need_content_paths:
-                    logger.info(f"需处理 {len(need_content_paths)} 条笔记（并发获取中...）")
-                    contents = await self._fns_get_notes_concurrent(client, need_content_paths)
-                else:
-                    contents = {}
-
-                # 7. 处理每条笔记
-                for path in need_content_paths:
-                    content = contents.get(path)
-                    if content is None:
-                        result["errors"] += 1
-                        continue
-
-                    content = self._strip_frontmatter(content)
-                    content = self._clean_obsidian_syntax(content)
-
-                    # 文件大小检查
-                    content_size_kb = len(content.encode("utf-8")) / 1024
-                    if self.max_file_size > 0 and content_size_kb > self.max_file_size:
-                        result["skipped_size"] += 1
-                        logger.debug(f"跳过（{content_size_kb:.0f}KB > {self.max_file_size}KB）: {path}")
-                        continue
-
-                    if not content.strip():
-                        result["unchanged"] += 1
-                        continue
-
-                    # 内容 hash 比对
-                    content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
-                    tracked = self._sync_state.get(path)
-                    if tracked and tracked.get("hash") == content_hash:
-                        result["unchanged"] += 1
-                        # 更新 remote_hash
-                        remote_hash = current_notes[path].get("contentHash", "")
-                        if remote_hash:
-                            self._sync_state[path]["remote_hash"] = remote_hash
-                        continue
-
-                    # 上传
-                    doc_id = None
-                    chunk_hashes = []
-
-                    # 已有文档且有 chunk_hashes → 尝试增量上传
-                    if tracked and tracked.get("doc_id") and tracked.get("chunk_hashes"):
-                        doc_id, chunk_hashes = await self._upload_incremental(
-                            path, content, tracked["doc_id"]
-                        )
-
-                    # 新文档 或 增量失败 → 全量上传
-                    if not doc_id:
-                        doc_id = await self._upload_document(path, content)
-                        if doc_id:
-                            # 全量上传成功后计算 chunk_hashes 供下次增量使用
-                            try:
-                                chunks = await self._chunker.chunk(content)
-                                chunk_hashes = [hashlib.md5(c.encode("utf-8")).hexdigest() for c in chunks]
-                            except Exception:
-                                chunk_hashes = []
-
+                if old_kb_doc_id and old_chunk_hashes:
+                    # 尝试增量同步
+                    doc_id, chunk_hashes = await self._upload_incremental(
+                        path, cleaned, old_kb_doc_id
+                    )
                     if doc_id:
-                        # 全量上传时删除旧文档（增量上传已内部处理）
-                        if tracked and tracked.get("doc_id") and tracked["doc_id"] != doc_id:
-                            await self._delete_document(tracked["doc_id"])
-
-                        remote_hash = current_notes[path].get("contentHash", "")
-                        self._sync_state[path] = {
-                            "hash": content_hash,
-                            "remote_hash": remote_hash,
-                            "doc_id": doc_id,
+                        self.staging.update_metadata(path, {
                             "chunk_hashes": chunk_hashes,
-                            "sync_time": time.time(),
-                        }
-                        if tracked:
-                            result["updated"] += 1
+                            "kb_doc_id": doc_id,
+                            "last_sync": time.time(),
+                        })
+                        if doc_id == old_kb_doc_id:
+                            result["unchanged"] += 1
                         else:
-                            result["new"] += 1
-                        logger.info(f"已同步: {path} ({'更新' if tracked else '新增'})")
+                            result["updated"] += 1
+                        continue
+
+                if old_kb_doc_id and not old_chunk_hashes:
+                    # 有 doc_id 但无 chunk_hashes（pre_chunk=False 的全量上传）
+                    # 先删除旧文档再重新上传
+                    await self._delete_document(old_kb_doc_id)
+
+                # 全量上传
+                file_name = path.split("/")[-1]
+                if not file_name.endswith(".md"):
+                    file_name += ".md"
+
+                doc_id = await self._upload_document(file_name, cleaned)
+                if doc_id:
+                    # 计算 chunk_hashes 供下次增量使用
+                    chunk_hashes = []
+                    try:
+                        chunks = await self._chunker.chunk(cleaned)
+                        chunk_hashes = [hashlib.md5(c.encode("utf-8")).hexdigest() for c in chunks]
+                    except Exception:
+                        pass
+
+                    self.staging.update_metadata(path, {
+                        "chunk_hashes": chunk_hashes,
+                        "kb_doc_id": doc_id,
+                        "last_sync": time.time(),
+                    })
+
+                    if old_kb_doc_id:
+                        result["updated"] += 1
                     else:
-                        result["errors"] += 1
+                        result["new"] += 1
+                else:
+                    result["errors"] += 1
 
-                    # 进度回调
-                    if progress_callback:
-                        processed = result["new"] + result["updated"] + result["errors"] + result["unchanged"] + result["skipped_size"]
-                        await progress_callback(processed, len(current_notes), path)
+                # 节奏控制
+                if (result["new"] + result["updated"]) % 5 == 0:
+                    await asyncio.sleep(0.1)
 
-                    # 节奏控制：每处理 5 条让出事件循环
-                    if (result["new"] + result["updated"]) % 5 == 0:
-                        await asyncio.sleep(0.1)
-
-            # 异步保存状态
-            await self._save_state()
+            await self.staging.save_metadata()
             result["duration"] = time.time() - result["start_time"]
-            self._last_sync_time = time.time()
-            self._sync_count += 1
 
-            # 定期全量校验：检查所有已记录的 doc_id 是否仍存在于知识库
-            if self.verify_interval > 0 and self._sync_count % self.verify_interval == 0:
-                verify_removed = await self._verify_all_doc_ids()
-                if verify_removed:
-                    result["verify_removed"] = verify_removed
-                    await self._save_state()
-
-            summary = (
-                f"同步完成: 新增 {result['new']}, 更新 {result['updated']}, "
-                f"删除 {result['deleted']}, 未变 {result['unchanged']}"
+            logger.info(
+                f"Staging: KB 同步完成 | 新增 {result['new']}, 更新 {result['updated']}, "
+                f"未变 {result['unchanged']}, 错误 {result['errors']}, "
+                f"耗时 {result['duration']:.1f}s"
             )
-            if result["skipped_size"]:
-                summary += f", 跳过(大文件) {result['skipped_size']}"
-            if result.get("verify_removed"):
-                summary += f", 校验恢复 {result['verify_removed']}"
-            summary += f", 错误 {result['errors']}, 耗时 {result['duration']:.1f}s"
-            logger.info(summary)
 
         except Exception as e:
-            logger.error(f"同步异常: {e}", exc_info=True)
+            logger.error(f"Staging: KB 同步异常: {e}", exc_info=True)
             result["error"] = str(e)
         finally:
             self._is_syncing = False
 
         return result
 
-    # ── 后台任务 ──────────────────────────────────────────────
 
-    async def _background_sync_loop(self):
-        logger.info(f"后台同步已启动，间隔 {self.sync_interval}s")
-        while True:
+# ═══════════════════════════════════════════════════════════════════
+#  Dashboard：Quart Web 服务器
+# ═══════════════════════════════════════════════════════════════════
+
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Obsidian KB Staging Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
+  --text: #c9d1d9; --text2: #8b949e; --accent: #58a6ff; --green: #3fb950;
+  --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 20px;
+  display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 18px; color: var(--accent); }
+.stats { display: flex; gap: 16px; font-size: 13px; color: var(--text2); }
+.stats span { background: var(--bg3); padding: 4px 10px; border-radius: 12px; }
+.stats .val { color: var(--accent); font-weight: 600; }
+.container { display: flex; flex: 1; overflow: hidden; }
+.sidebar { width: 280px; min-width: 280px; background: var(--bg2); border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 12px; }
+.folder { margin-bottom: 4px; }
+.folder-name { padding: 6px 8px; cursor: pointer; border-radius: 6px; font-size: 14px;
+  display: flex; align-items: center; gap: 6px; color: var(--text); }
+.folder-name:hover { background: var(--bg3); }
+.folder-name .arrow { font-size: 10px; transition: transform 0.15s; width: 14px; text-align: center; }
+.folder-name .arrow.open { transform: rotate(90deg); }
+.folder-children { margin-left: 16px; display: none; }
+.folder-children.open { display: block; }
+.file-item { padding: 5px 8px; cursor: pointer; border-radius: 6px; font-size: 13px;
+  color: var(--text2); display: flex; align-items: center; gap: 6px; }
+.file-item:hover { background: var(--bg3); color: var(--text); }
+.file-item.active { background: var(--accent); color: #fff; }
+.file-item .sync-badge { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.file-item .sync-badge.off { background: var(--border); }
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.toolbar { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 8px 16px;
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.toolbar button { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.toolbar button:hover { background: var(--border); }
+.toolbar button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+.toolbar button.primary:hover { background: #2ea043; }
+.toolbar button.danger { background: #b62324; border-color: #da3633; color: #fff; }
+.toolbar .spacer { flex: 1; }
+.toolbar .info { font-size: 12px; color: var(--text2); }
+.editor-area { flex: 1; display: flex; overflow: hidden; }
+.editor-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.editor-pane textarea { flex: 1; background: var(--bg); color: var(--text); border: none;
+  padding: 16px; font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 14px; line-height: 1.6; resize: none; outline: none; tab-size: 2; }
+.meta-panel { width: 300px; min-width: 300px; background: var(--bg2); border-left: 1px solid var(--border);
+  overflow-y: auto; padding: 16px; }
+.meta-panel h3 { font-size: 14px; color: var(--accent); margin-bottom: 12px; }
+.meta-field { margin-bottom: 12px; }
+.meta-field label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+.meta-field input[type="text"], .meta-field input[type="number"] {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+.meta-field .toggle { display: flex; align-items: center; gap: 8px; }
+.meta-field .toggle input[type="checkbox"] { width: 16px; height: 16px; }
+.meta-field .read-only { font-size: 13px; color: var(--text2); word-break: break-all; }
+.welcome { flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text2); font-size: 16px; }
+.toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg3); border: 1px solid var(--border);
+  padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 999; opacity: 0;
+  transition: opacity 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.toast.error { border-color: var(--red); color: var(--red); }
+.toast.success { border-color: var(--green); color: var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Obsidian KB Staging</h1>
+  <div class="stats" id="stats">Loading...</div>
+</header>
+<div class="container">
+  <div class="sidebar" id="sidebar">Loading...</div>
+  <div class="main">
+    <div class="toolbar" id="toolbar">
+      <button class="primary" onclick="syncFns()">🔄 Sync from FNS</button>
+      <button class="primary" onclick="syncKb()">📤 Push to KB</button>
+      <div class="spacer"></div>
+      <button onclick="saveDoc()">💾 Save</button>
+      <div class="info" id="docInfo"></div>
+    </div>
+    <div class="editor-area" id="editorArea">
+      <div class="welcome">Select a document from the sidebar</div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let currentPath = null;
+let metadataChanged = false;
+
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+async function api(url, opts={}) {
+  try {
+    const r = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
+    return await r.json();
+  } catch(e) { toast('API Error: '+e.message, 'error'); throw e; }
+}
+
+async function loadStats() {
+  const d = await api('/api/status');
+  document.getElementById('stats').innerHTML =
+    `<span>Total: <b class="val">${d.total_documents}</b></span>` +
+    `<span>Selected: <b class="val">${d.selected_for_sync}</b></span>` +
+    `<span>Synced: <b class="val">${d.synced_to_kb}</b></span>` +
+    `<span>Size: <b class="val">${d.total_size_kb}KB</b></span>`;
+}
+
+async function loadFolders() {
+  const tree = await api('/api/folders');
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML = '';
+  renderTree(tree, sb, '');
+}
+
+function renderTree(node, container, prefix) {
+  const folders = Object.keys(node).filter(k => k !== '__files__').sort();
+  const files = node['__files__'] || [];
+
+  for (const f of files) {
+    const div = document.createElement('div');
+    div.className = 'file-item' + (currentPath === f.path ? ' active' : '');
+    div.innerHTML = `<span class="sync-badge ${f.sync_to_kb ? '' : 'off'}"></span>${f.name}`;
+    div.onclick = () => loadDoc(f.path);
+    container.appendChild(div);
+  }
+
+  for (const name of folders) {
+    const folder = document.createElement('div');
+    folder.className = 'folder';
+    const header = document.createElement('div');
+    header.className = 'folder-name';
+    header.innerHTML = `<span class="arrow">▶</span>📁 ${name}`;
+    const children = document.createElement('div');
+    children.className = 'folder-children';
+    header.onclick = () => {
+      children.classList.toggle('open');
+      header.querySelector('.arrow').classList.toggle('open');
+    };
+    folder.appendChild(header);
+    folder.appendChild(children);
+    renderTree(node[name], children, prefix + name + '/');
+    container.appendChild(folder);
+  }
+}
+
+async function loadDoc(path) {
+  currentPath = path;
+  const [doc, meta] = await Promise.all([
+    api('/api/document?path=' + encodeURIComponent(path)),
+    api('/api/documents?folder=').then(docs => docs.find(d => d.path === path))
+  ]);
+  document.getElementById('editorArea').innerHTML = `
+    <div class="editor-pane">
+      <textarea id="editor">${escapeHtml(doc.content || '')}</textarea>
+    </div>
+    <div class="meta-panel">
+      <h3>📋 Metadata</h3>
+      <div class="meta-field">
+        <label>Path</label>
+        <div class="read-only">${escapeHtml(path)}</div>
+      </div>
+      <div class="meta-field">
+        <label>Size</label>
+        <div class="read-only">${meta ? meta.size_kb.toFixed(1) : '?'} KB</div>
+      </div>
+      <div class="meta-field">
+        <label>FNS Hash</label>
+        <div class="read-only" style="font-size:11px">${meta ? meta.fns_hash || '(empty)' : ''}</div>
+      </div>
+      <div class="meta-field">
+        <label>Content Hash</label>
+        <div class="read-only" style="font-size:11px">${meta ? meta.content_hash || '' : ''}</div>
+      </div>
+      <div class="meta-field">
+        <label>KB Doc ID</label>
+        <div class="read-only" style="font-size:11px">${meta ? meta.kb_doc_id || '(not synced)' : ''}</div>
+      </div>
+      <div class="meta-field">
+        <div class="toggle">
+          <input type="checkbox" id="syncToggle" ${meta && meta.sync_to_kb ? 'checked' : ''}
+                 onchange="updateMeta('sync_to_kb', this.checked)">
+          <label for="syncToggle">Sync to KB</label>
+        </div>
+      </div>
+      <div class="meta-field">
+        <div class="toggle">
+          <input type="checkbox" id="chunkToggle" ${meta && meta.pre_chunk !== false ? 'checked' : ''}
+                 onchange="updateMeta('pre_chunk', this.checked)">
+          <label for="chunkToggle">Pre-chunk (incremental)</label>
+        </div>
+      </div>
+      <div class="meta-field">
+        <label>Last Sync</label>
+        <div class="read-only">${meta && meta.last_sync ? new Date(meta.last_sync*1000).toLocaleString() : 'Never'}</div>
+      </div>
+      <div class="meta-field">
+        <label>Staged At</label>
+        <div class="read-only">${meta && meta.staged_at ? new Date(meta.staged_at*1000).toLocaleString() : '-'}</div>
+      </div>
+    </div>`;
+  document.getElementById('docInfo').textContent = path;
+  loadFolders();
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function updateMeta(field, value) {
+  if (!currentPath) return;
+  await api('/api/metadata', {method:'POST', body: JSON.stringify({path: currentPath, [field]: value})});
+  toast('Metadata updated', 'success');
+  loadStats();
+}
+
+async function saveDoc() {
+  if (!currentPath) return;
+  const editor = document.getElementById('editor');
+  if (!editor) return;
+  await api('/api/document', {method:'POST', body: JSON.stringify({path: currentPath, content: editor.value})});
+  toast('Document saved', 'success');
+}
+
+async function syncFns() {
+  toast('Syncing from FNS...');
+  const r = await api('/api/sync/fns', {method:'POST'});
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`FNS sync done: +${r.new} ~${r.updated} =${r.unchanged} err${r.errors}`, 'success');
+  loadStats(); loadFolders();
+}
+
+async function syncKb() {
+  toast('Pushing to KB...');
+  const r = await api('/api/sync/kb', {method:'POST'});
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`KB sync done: +${r.new} ~${r.updated} =${r.unchanged} err${r.errors}`, 'success');
+  loadStats(); loadFolders();
+}
+
+// Keyboard shortcut: Ctrl+S to save
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveDoc(); }
+});
+
+loadStats();
+loadFolders();
+</script>
+</body>
+</html>"""
+
+
+class Dashboard:
+    """Quart Web 仪表盘，提供 REST API + HTML 页面。"""
+
+    def __init__(self, staging: StagingManager, sync_engine: SyncEngine,
+                 fns_client_factory, exclude_patterns: list[str],
+                 port: int = 6190):
+        self.staging = staging
+        self.sync_engine = sync_engine
+        self.fns_client_factory = fns_client_factory
+        self.exclude_patterns = exclude_patterns
+        self.port = port
+        self.app = Quart(__name__)
+        self._server_task: Optional[asyncio.Task] = None
+        self._setup_routes()
+
+    def _setup_routes(self):
+        app = self.app
+
+        @app.route("/")
+        async def index():
+            return DASHBOARD_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+        @app.route("/api/folders")
+        async def api_folders():
+            return jsonify(self.staging.get_folder_tree())
+
+        @app.route("/api/documents")
+        async def api_documents():
+            folder = request.args.get("folder", "")
+            docs = self.staging.list_documents(folder if folder else None)
+            return jsonify(docs)
+
+        @app.route("/api/document")
+        async def api_get_document():
+            path = request.args.get("path", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            content = self.staging.get_document(path)
+            if content is None:
+                return jsonify({"error": "not found"}), 404
+            return jsonify({"path": path, "content": content})
+
+        @app.route("/api/document", methods=["POST"])
+        async def api_save_document():
+            data = await request.get_json()
+            path = data.get("path", "")
+            content = data.get("content", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            ok = self.staging.save_document(path, content)
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok})
+
+        @app.route("/api/metadata", methods=["POST"])
+        async def api_update_metadata():
+            data = await request.get_json()
+            path = data.get("path", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            updates = {k: v for k, v in data.items() if k != "path"}
+            ok = self.staging.update_metadata(path, updates)
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok})
+
+        @app.route("/api/metadata/batch", methods=["POST"])
+        async def api_batch_metadata():
+            data = await request.get_json()
+            paths = data.get("paths", [])
+            updates = data.get("updates", {})
+            count = 0
+            for p in paths:
+                if self.staging.update_metadata(p, updates):
+                    count += 1
+            if count:
+                await self.staging.save_metadata()
+            return jsonify({"updated": count})
+
+        @app.route("/api/sync/fns", methods=["POST"])
+        async def api_sync_fns():
+            fns = self.fns_client_factory()
             try:
-                await asyncio.sleep(self.sync_interval)
-                if self.auto_sync and self.fns_url and self.fns_vault:
-                    logger.info("开始自动同步...")
-                    await self._do_sync()
+                result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+            finally:
+                await fns.close()
+            return jsonify(result)
+
+        @app.route("/api/sync/kb", methods=["POST"])
+        async def api_sync_kb():
+            result = await self.sync_engine.sync_to_kb()
+            return jsonify(result)
+
+        @app.route("/api/status")
+        async def api_status():
+            return jsonify(self.staging.get_stats())
+
+    async def start(self):
+        """在后台 asyncio task 中启动 Quart 服务器。"""
+        config = self.app.config
+        config["SERVER_NAME"] = f"0.0.0.0:{self.port}"
+        self._server_task = asyncio.create_task(
+            self.app.run_task(host="0.0.0.0", port=self.port, use_reloader=False)
+        )
+        # 等待服务器启动
+        await asyncio.sleep(0.5)
+        logger.info(f"Staging Dashboard 已启动: http://0.0.0.0:{self.port}")
+
+    async def stop(self):
+        """停止 Quart 服务器。"""
+        if self._server_task and not self._server_task.done():
+            self._server_task.cancel()
+            try:
+                await self._server_task
             except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"后台同步出错: {e}")
-                await asyncio.sleep(60)
+                pass
+            logger.info("Staging Dashboard 已停止")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Plugin 主类
+# ═══════════════════════════════════════════════════════════════════
+
+
+class ObsidianKBStagingPlugin(Star):
+    """Obsidian KB Staging Layer 插件。"""
+
+    def __init__(self, context: Context, config: AstrBotConfig):
+        super().__init__(context)
+        self.config = config
+
+        # FNS 配置
+        self.fns_url: str = config.get("fns_url", "").rstrip("/")
+        self.fns_token: str = config.get("fns_token", "")
+        self.fns_vault: str = config.get("fns_vault", "")
+
+        # 知识库配置
+        self.kb_id: str = config.get("kb_id", "")
+        self.kb_name: str = config.get("kb_name", "Obsidian Vault")
+
+        # Dashboard 配置
+        self.dashboard_port: int = config.get("dashboard_port", 6190)
+
+        # 同步配置
+        self.max_file_size: int = config.get("max_file_size", 100)
+        self.chunk_size: int = config.get("chunk_size", 512)
+        self.chunk_overlap: int = config.get("chunk_overlap", 50)
+        self.concurrent_fetches: int = config.get("concurrent_fetches", 5)
+        self.retry_count: int = config.get("retry_count", 3)
+        self.exclude_patterns: list = config.get(
+            "exclude_patterns", [".obsidian", ".trash", "*.tmp", ".git"]
+        )
+
+        # 数据目录
+        self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_obsidian_kb_sync"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+
+        # 核心组件
+        self.staging = StagingManager(
+            data_dir=self._data_dir,
+            max_file_size_kb=self.max_file_size,
+        )
+        self.sync_engine = SyncEngine(
+            staging=self.staging,
+            context=context,
+            kb_id=self.kb_id,
+            kb_name=self.kb_name,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+        self.dashboard = Dashboard(
+            staging=self.staging,
+            sync_engine=self.sync_engine,
+            fns_client_factory=self._make_fns_client,
+            exclude_patterns=self.exclude_patterns,
+            port=self.dashboard_port,
+        )
+
+        # 状态
+        self._is_syncing = False
+        self._last_sync_time: float = 0
+
+        logger.info(
+            f"Staging 插件初始化完成 | FNS: {self.fns_url} | "
+            f"Vault: {self.fns_vault} | Dashboard: :{self.dashboard_port}"
+        )
+
+    def _make_fns_client(self) -> FNSClient:
+        """创建 FNSClient 实例。"""
+        return FNSClient(
+            base_url=self.fns_url,
+            token=self.fns_token,
+            vault=self.fns_vault,
+            retry_count=self.retry_count,
+            concurrency=self.concurrent_fetches,
+        )
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
-        logger.info("Obsidian KB Sync v2 插件已加载")
-        if self.auto_sync and self.fns_url and self.fns_vault and self.fns_token:
-            self._sync_task = asyncio.create_task(self._background_sync_loop())
+        """AstrBot 加载完成后启动 Dashboard 并执行初始同步。"""
+        logger.info("Staging 插件已加载，启动 Dashboard...")
+        # 启动 Dashboard
+        await self.dashboard.start()
+
+        # 初始 FNS 同步
+        if self.fns_url and self.fns_token and self.fns_vault:
+            logger.info("Staging: 执行初始 FNS 同步...")
+            fns = self._make_fns_client()
+            try:
+                result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+                logger.info(
+                    f"Staging: 初始同步完成 | 新增 {result.get('new', 0)}, "
+                    f"更新 {result.get('updated', 0)}, 未变 {result.get('unchanged', 0)}"
+                )
+            except Exception as e:
+                logger.error(f"Staging: 初始同步失败: {e}")
+            finally:
+                await fns.close()
+        else:
+            logger.warning("Staging: FNS 未配置，跳过初始同步")
 
     # ── 指令 ──────────────────────────────────────────────────
 
-    @filter.command("obsidian_sync")
-    async def manual_sync(self, event: AstrMessageEvent):
-        '''手动触发 Obsidian 同步'''
+    @filter.command("staging_sync")
+    async def cmd_staging_sync(self, event: AstrMessageEvent):
+        '''手动触发 FNS→Staging 同步'''
         if not self.fns_url or not self.fns_token:
             yield event.plain_result("❌ 请先配置 FNS 服务地址和 Token")
             return
@@ -721,71 +1286,76 @@ class ObsidianKBSyncPlugin(Star):
             yield event.plain_result("⏳ 已有同步任务在执行中，请稍候...")
             return
 
-        yield event.plain_result("🔄 正在从 Fast Note Sync 同步笔记...")
+        self._is_syncing = True
+        yield event.plain_result("🔄 正在从 FNS 同步到 Staging...")
 
-        # 带进度反馈的回调
-        last_report = [0]
+        fns = self._make_fns_client()
+        try:
+            result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+            self._last_sync_time = time.time()
 
-        async def progress_cb(processed, total, current_path):
-            now = time.time()
-            if now - last_report[0] >= 30 and total > 0:  # 每 30s 报告一次
-                last_report[0] = now
-                pct = processed / total * 100
-                logger.info(f"同步进度: {processed}/{total} ({pct:.0f}%) - {current_path}")
+            if "error" in result:
+                yield event.plain_result(f"❌ 同步失败: {result['error']}")
+            else:
+                msg = (
+                    f"✅ FNS→Staging 同步完成！\n"
+                    f"📊 总笔记: {result['total']}\n"
+                    f"  新增: {result['new']} | 更新: {result['updated']}\n"
+                    f"  未变: {result['unchanged']} | 跳过: {result['skipped']}\n"
+                    f"  错误: {result['errors']}\n"
+                    f"⏱️ 耗时: {result.get('duration', 0):.1f}s"
+                )
+                yield event.plain_result(msg)
+        except Exception as e:
+            yield event.plain_result(f"❌ 同步异常: {e}")
+        finally:
+            await fns.close()
+            self._is_syncing = False
 
-        result = await self._do_sync(progress_callback=progress_cb)
+    @filter.command("staging_push")
+    async def cmd_staging_push(self, event: AstrMessageEvent):
+        '''手动触发 Staging→KB 同步'''
+        yield event.plain_result("📤 正在从 Staging 推送到知识库...")
+
+        result = await self.sync_engine.sync_to_kb()
         if "error" in result:
-            yield event.plain_result(f"❌ 同步失败: {result['error']}")
+            yield event.plain_result(f"❌ 推送失败: {result['error']}")
         else:
             msg = (
-                f"✅ 同步完成！\n"
-                f"📊 总笔记: {result['total']}\n"
-                f"  新增: {result['new']} | 更新: {result['updated']} | 删除: {result['deleted']}\n"
-                f"  未变: {result['unchanged']}"
+                f"✅ Staging→KB 推送完成！\n"
+                f"📊 已选文档: {result['total']}\n"
+                f"  新增: {result['new']} | 更新: {result['updated']}\n"
+                f"  未变: {result['unchanged']} | 错误: {result['errors']}\n"
+                f"⏱️ 耗时: {result.get('duration', 0):.1f}s"
             )
-            if result.get("skipped_size"):
-                msg += f" | 跳过(大文件): {result['skipped_size']}"
-            msg += f" | 错误: {result['errors']}\n⏱️ 耗时: {result.get('duration', 0):.1f}s"
             yield event.plain_result(msg)
 
-    @filter.command("obsidian_status")
-    async def show_status(self, event: AstrMessageEvent):
-        '''查看 Obsidian 同步状态'''
-        tracked = len(self._sync_state)
-        last_sync = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._last_sync_time)) if self._last_sync_time else "从未同步"
+    @filter.command("staging_status")
+    async def cmd_staging_status(self, event: AstrMessageEvent):
+        '''查看 Staging 状态'''
+        stats = self.staging.get_stats()
+        last_sync = (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._last_sync_time))
+            if self._last_sync_time else "从未同步"
+        )
         yield event.plain_result(
-            f"📁 Obsidian 知识库同步 v2\n"
+            f"📚 Obsidian KB Staging\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 FNS: {self.fns_url or '未配置'}\n"
             f"📂 Vault: {self.fns_vault or '未配置'}\n"
             f"📚 知识库: {self.kb_name} ({self.kb_id or '未设置'})\n"
+            f"🌐 Dashboard: http://0.0.0.0:{self.dashboard_port}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📋 已同步: {tracked} 条\n"
-            f"🔄 自动同步: {'开启' if self.auto_sync else '关闭'}\n"
-            f"⏰ 间隔: {self.sync_interval}s\n"
-            f"🚀 并发: {self.concurrent_fetches}\n"
-            f"📦 最大文件: {self.max_file_size}KB\n"
-            f"🔍 校验间隔: 每 {self.verify_interval} 次同步\n"
-            f"🕐 上次: {last_sync}\n"
-            f"📊 次数: {self._sync_count}"
+            f"📋 暂存文档: {stats['total_documents']}\n"
+            f"✅ 已选同步: {stats['selected_for_sync']}\n"
+            f"📤 已同步: {stats['synced_to_kb']}\n"
+            f"🧩 增量分块: {stats['pre_chunked']}\n"
+            f"💾 总大小: {stats['total_size_kb']}KB\n"
+            f"🕐 上次同步: {last_sync}"
         )
 
-    @filter.command("obsidian_reset")
-    async def reset_sync(self, event: AstrMessageEvent):
-        '''重置同步状态'''
-        self._sync_state = {}
-        await self._save_state()
-        self._sync_count = 0
-        self._last_sync_time = 0
-        self._kb_helper = None
-        yield event.plain_result("✅ 已重置！下次同步将全量重新上传。")
-
     async def terminate(self):
-        if self._sync_task and not self._sync_task.done():
-            self._sync_task.cancel()
-            try:
-                await self._sync_task
-            except asyncio.CancelledError:
-                pass
-        await self._save_state()
-        logger.info("Obsidian KB Sync v2 插件已停止")
+        """插件停止时清理资源。"""
+        await self.dashboard.stop()
+        await self.staging.save_metadata()
+        logger.info("Staging 插件已停止")

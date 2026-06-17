@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Obsidian 暂存区 - AstrBot Plugin</title>
+<style>
+:root {
+  --primary: #4A90D9;
+  --primary-hover: #357ABD;
+  --primary-light: rgba(74,144,217,0.12);
+  --success: #52C41A;
+  --success-light: rgba(82,196,26,0.12);
+  --warning: #FAAD14;
+  --warning-light: rgba(250,173,20,0.12);
+  --error: #FF4D4F;
+  --error-light: rgba(255,77,79,0.12);
+  --bg: #f5f7fa;
+  --bg-card: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-topbar: #ffffff;
+  --bg-bottombar: #ffffff;
+  --border: #e8ecf1;
+  --text: #1a1a2e;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --transition: 0.2s ease;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --sidebar-width: 250px;
+}
+
+[data-theme="dark"] {
+  --bg: #1a1a2e;
+  --bg-card: #16213e;
+  --bg-sidebar: #16213e;
+  --bg-topbar: #16213e;
+  --bg-bottombar: #16213e;
+  --border: #2a2a4a;
+  --text: #e0e0e0;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --primary-light: rgba(74,144,217,0.2);
+  --success-light: rgba(82,196,26,0.2);
+  --warning-light: rgba(250,173,20,0.2);
+  --error-light: rgba(255,77,79,0.2);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* ===== Top Bar ===== */
+.topbar {
+  height: 52px;
+  background: var(--bg-topbar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.topbar-title .icon { font-size: 20px; }
+
+.status-indicators {
+  display: flex;
+  gap: 10px;
+  margin-left: 8px;
+}
+
+.status-dot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  transition: all var(--transition);
+}
+
+.status-dot .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--transition);
+}
+
+.status-dot.connected .dot { background: var(--success); }
+.status-dot.disconnected .dot { background: var(--error); }
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
+}
+.btn-success:hover { background: #45a817; border-color: #45a817; color: #fff; }
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 16px;
+  transition: all var(--transition);
+}
+.theme-toggle:hover { border-color: var(--primary); }
+
+/* ===== Main Layout ===== */
+.main-wrapper {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+
+.sidebar-header {
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.sidebar-content::-webkit-scrollbar { width: 4px; }
+.sidebar-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all var(--transition);
+  gap: 8px;
+  color: var(--text);
+}
+
+.folder-item:hover { background: var(--primary-light); }
+.folder-item.active { background: var(--primary-light); color: var(--primary); font-weight: 500; }
+
+.folder-item .folder-icon { font-size: 15px; flex-shrink: 0; }
+.folder-item .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.folder-item .folder-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* ===== Content Area ===== */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.content-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition);
+  font-family: inherit;
+}
+.search-input:focus { border-color: var(--primary); }
+.search-input::placeholder { color: var(--text-muted); }
+
+.batch-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ===== Split View ===== */
+.split-view {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.doc-list-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.doc-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.doc-table-wrapper::-webkit-scrollbar { width: 5px; height: 5px; }
+.doc-table-wrapper::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.doc-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-card);
+}
+
+.doc-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--transition);
+}
+
+.doc-table th:hover { color: var(--primary); }
+.doc-table th.sort-asc::after { content: ' ▲'; font-size: 10px; color: var(--primary); }
+.doc-table th.sort-desc::after { content: ' ▼'; font-size: 10px; color: var(--primary); }
+
+.doc-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.doc-table tr {
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.doc-table tbody tr:hover { background: var(--primary-light); }
+.doc-table tbody tr.selected { background: var(--primary-light); }
+
+.doc-table .cb-cell {
+  text-align: center;
+  width: 36px;
+}
+
+.doc-table input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.doc-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doc-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.doc-status-dot.synced { background: var(--success); }
+.doc-status-dot.selected { background: var(--warning); }
+.doc-status-dot.none { background: var(--text-muted); }
+
+.doc-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-size { color: var(--text-secondary); white-space: nowrap; }
+.doc-date { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+
+.doc-list-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
+}
+
+.doc-list-empty .empty-icon { font-size: 36px; opacity: 0.4; }
+
+/* ===== Viewer Panel ===== */
+.viewer-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  background: var(--bg-card);
+}
+
+.viewer-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.viewer-title {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.viewer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.viewer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.viewer-content::-webkit-scrollbar { width: 5px; }
+.viewer-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.viewer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
+}
+
+.viewer-empty .empty-icon { font-size: 36px; opacity: 0.4; }
+
+/* Markdown Render */
+.md-render { line-height: 1.7; font-size: 14px; }
+.md-render h1 { font-size: 1.6em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-render h2 { font-size: 1.4em; margin: 0.7em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.md-render h3 { font-size: 1.2em; margin: 0.6em 0 0.3em; }
+.md-render h4 { font-size: 1.05em; margin: 0.5em 0 0.2em; }
+.md-render p { margin: 0.5em 0; }
+.md-render strong { font-weight: 600; }
+.md-render em { font-style: italic; }
+.md-render a { color: var(--primary); text-decoration: none; }
+.md-render a:hover { text-decoration: underline; }
+.md-render ul, .md-render ol { padding-left: 1.8em; margin: 0.4em 0; }
+.md-render li { margin: 0.2em 0; }
+.md-render code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.md-render pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.md-render pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+.md-render blockquote {
+  border-left: 3px solid var(--primary);
+  padding: 4px 12px;
+  margin: 0.5em 0;
+  color: var(--text-secondary);
+  background: var(--primary-light);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.md-render hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+.md-render img { max-width: 100%; border-radius: var(--radius-sm); }
+
+/* Editor */
+.editor-textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg-card);
+  color: var(--text);
+}
+.editor-textarea::placeholder { color: var(--text-muted); }
+
+/* ===== Bottom Bar ===== */
+.bottombar {
+  height: 32px;
+  background: var(--bg-bottombar);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.bottombar .sep { color: var(--border); }
+
+/* ===== Toast ===== */
+.toast-container {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: toast-in 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.toast.success { background: var(--success); color: #fff; }
+.toast.error { background: var(--error); color: #fff; }
+.toast.info { background: var(--primary); color: #fff; }
+.toast.warning { background: var(--warning); color: #1a1a2e; }
+
+.toast.fade-out { animation: toast-out 0.3s ease forwards; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(40px); }
+}
+
+/* ===== Spinner ===== */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.spinner-dark {
+  border-color: var(--border);
+  border-top-color: var(--primary);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+[data-theme="dark"] .loading-overlay {
+  background: rgba(0,0,0,0.3);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .sidebar { width: 0; border: none; overflow: hidden; }
+  .sidebar.open { width: var(--sidebar-width); border-right: 1px solid var(--border); }
+  .split-view { flex-direction: column; }
+  .doc-list-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<header class="topbar">
+  <div class="topbar-title">
+    <span class="icon">📚</span>
+    Obsidian 暂存区
+  </div>
+  <div class="status-indicators">
+    <div class="status-dot" id="fnsStatus">
+      <span class="dot"></span>
+      <span>FNS</span>
+    </div>
+    <div class="status-dot" id="kbStatus">
+      <span class="dot"></span>
+      <span>知识库</span>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
+    <button class="btn btn-success" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
+  </div>
+</header>
+
+<!-- Main Wrapper -->
+<div class="main-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">📁 文件夹</div>
+    <div class="sidebar-content" id="folderList"></div>
+  </aside>
+
+  <!-- Content Area -->
+  <main class="content-area">
+    <!-- Toolbar -->
+    <div class="content-toolbar">
+      <input type="text" class="search-input" id="searchInput" placeholder="🔍 搜索文件名..." oninput="onSearch()">
+      <div class="batch-actions">
+        <button class="btn btn-sm" onclick="batchSetSync(true)">全选同步</button>
+        <button class="btn btn-sm" onclick="batchSetChunk(true)">全选预切块</button>
+        <button class="btn btn-sm" onclick="batchClear()">取消全选</button>
+      </div>
+    </div>
+
+    <!-- Split View -->
+    <div class="split-view">
+      <!-- Document List -->
+      <div class="doc-list-panel" id="docListPanel">
+        <div class="doc-table-wrapper" id="docTableWrapper">
+          <table class="doc-table" id="docTable">
+            <thead>
+              <tr>
+                <th class="cb-cell" style="cursor:default">同步</th>
+                <th class="cb-cell" style="cursor:default">切块</th>
+                <th onclick="sortBy('name')" data-sort="name">文件名</th>
+                <th onclick="sortBy('size_kb')" data-sort="size_kb">大小</th>
+                <th onclick="sortBy('last_sync')" data-sort="last_sync">最后同步</th>
+              </tr>
+            </thead>
+            <tbody id="docTableBody"></tbody>
+          </table>
+        </div>
+        <div class="doc-list-empty" id="docListEmpty" style="display:none">
+          <div class="empty-icon">📄</div>
+          <span>暂无文档</span>
+        </div>
+      </div>
+
+      <!-- Viewer Panel -->
+      <div class="viewer-panel" id="viewerPanel">
+        <div class="viewer-header">
+          <span class="viewer-title" id="viewerTitle">选择文档以预览</span>
+          <div class="viewer-actions" id="viewerActions" style="display:none">
+            <button class="btn btn-sm" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
+            <button class="btn btn-sm btn-primary" id="btnSave" onclick="saveDoc()" style="display:none">💾 保存</button>
+            <button class="btn btn-sm" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
+          </div>
+        </div>
+        <div class="viewer-content" id="viewerContent">
+          <div class="viewer-empty">
+            <div class="empty-icon">👀</div>
+            <span>点击左侧文档查看内容</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Bottom Bar -->
+<footer class="bottombar">
+  <span id="statusTotal">共 0 篇</span>
+  <span class="sep">|</span>
+  <span id="statusSelected">已选 0 篇</span>
+  <span class="sep">|</span>
+  <span id="statusSynced">已同步 0 篇</span>
+  <span class="sep">|</span>
+  <span id="statusLastSync">上次同步: --</span>
+</footer>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+/* ===== State ===== */
+let state = {
+  folders: [],
+  documents: [],
+  currentFolder: null,
+  currentDoc: null,
+  editing: false,
+  originalContent: '',
+  sortField: 'name',
+  sortAsc: true,
+  searchQuery: '',
+};
+
+/* ===== API Helpers ===== */
+async function api(url, opts = {}) {
+  const defaults = { headers: { 'Content-Type': 'application/json' } };
+  const res = await fetch(url, { ...defaults, ...opts });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/* ===== Theme ===== */
+function initTheme() {
+  const saved = localStorage.getItem('staging-theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.querySelector('.theme-toggle').textContent = '☀️';
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    document.querySelector('.theme-toggle').textContent = '🌙';
+    localStorage.setItem('staging-theme', 'light');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.querySelector('.theme-toggle').textContent = '☀️';
+    localStorage.setItem('staging-theme', 'dark');
+  }
+}
+
+/* ===== Toast ===== */
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('fade-out');
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
+}
+
+/* ===== Status Bar ===== */
+async function loadStatus() {
+  try {
+    const s = await api('/api/status');
+    document.getElementById('statusTotal').textContent = `共 ${s.total} 篇`;
+    document.getElementById('statusSelected').textContent = `已选 ${s.selected} 篇`;
+    document.getElementById('statusSynced').textContent = `已同步 ${s.synced_to_kb} 篇`;
+    const lastSync = s.last_fns_sync ? formatTime(s.last_fns_sync) : '--';
+    document.getElementById('statusLastSync').textContent = `上次同步: ${lastSync}`;
+
+    // Connection indicators
+    const fnsEl = document.getElementById('fnsStatus');
+    const kbEl = document.getElementById('kbStatus');
+    fnsEl.className = `status-dot ${s.last_fns_sync ? 'connected' : 'disconnected'}`;
+    kbEl.className = `status-dot ${s.last_kb_sync ? 'connected' : 'disconnected'}`;
+  } catch (e) {
+    console.error('Status load failed:', e);
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return '--';
+  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
+  if (isNaN(d.getTime())) return '--';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatSize(kb) {
+  if (kb == null) return '--';
+  if (kb < 1) return `${(kb * 1024).toFixed(0)} B`;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+/* ===== Folders ===== */
+async function loadFolders() {
+  try {
+    const data = await api('/api/folders');
+    state.folders = data.folders || [];
+    renderFolders();
+  } catch (e) {
+    console.error('Folders load failed:', e);
+    toast('加载文件夹失败', 'error');
+  }
+}
+
+function renderFolders() {
+  const container = document.getElementById('folderList');
+  const totalCount = state.folders.reduce((s, f) => s + (f.count || 0), 0);
+
+  let html = `<div class="folder-item ${state.currentFolder === null ? 'active' : ''}" onclick="selectFolder(null)">
+    <span class="folder-icon">📋</span>
+    <span class="folder-name">全部</span>
+    <span class="folder-count">${totalCount}</span>
+  </div>`;
+
+  state.folders.forEach(f => {
+    const isActive = state.currentFolder === f.path;
+    html += `<div class="folder-item ${isActive ? 'active' : ''}" onclick="selectFolder('${escapeHtml(f.path)}')">
+      <span class="folder-icon">📂</span>
+      <span class="folder-name" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+      <span class="folder-count">${f.count || 0}</span>
+    </div>`;
+  });
+
+  container.innerHTML = html;
+}
+
+function selectFolder(path) {
+  state.currentFolder = path;
+  renderFolders();
+  loadDocuments();
+}
+
+/* ===== Documents ===== */
+async function loadDocuments() {
+  try {
+    const url = state.currentFolder
+      ? `/api/documents?folder=${encodeURIComponent(state.currentFolder)}`
+      : '/api/documents';
+    const data = await api(url);
+    state.documents = data.documents || [];
+    renderDocuments();
+  } catch (e) {
+    console.error('Documents load failed:', e);
+    toast('加载文档列表失败', 'error');
+  }
+}
+
+function getFilteredDocs() {
+  let docs = [...state.documents];
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    docs = docs.filter(d => d.name.toLowerCase().includes(q) || d.path.toLowerCase().includes(q));
+  }
+
+  const field = state.sortField;
+  const asc = state.sortAsc ? 1 : -1;
+  docs.sort((a, b) => {
+    let va = a[field], vb = b[field];
+    if (field === 'name') {
+      return asc * String(va).localeCompare(String(vb));
+    }
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return asc * (va - vb);
+  });
+
+  return docs;
+}
+
+function renderDocuments() {
+  const docs = getFilteredDocs();
+  const tbody = document.getElementById('docTableBody');
+  const empty = document.getElementById('docListEmpty');
+  const table = document.getElementById('docTable');
+
+  // Update sort indicators
+  document.querySelectorAll('.doc-table th[data-sort]').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.sort === state.sortField) {
+      th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
+    }
+  });
+
+  if (docs.length === 0) {
+    tbody.innerHTML = '';
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+
+  table.style.display = '';
+  empty.style.display = 'none';
+
+  tbody.innerHTML = docs.map(d => {
+    const statusClass = d.sync_to_kb ? 'synced' : (d.sync_to_kb || d.pre_chunk ? 'selected' : 'none');
+    const isActive = state.currentDoc && state.currentDoc.path === d.path;
+    return `<tr class="${isActive ? 'selected' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
+      <td class="cb-cell"><input type="checkbox" ${d.sync_to_kb ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)"></td>
+      <td class="cb-cell"><input type="checkbox" ${d.pre_chunk ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
+      <td><div class="doc-name"><span class="doc-status-dot ${statusClass}"></span><span class="doc-name-text" title="${escapeAttr(d.path)}">${escapeHtml(d.name)}</span></div></td>
+      <td class="doc-size">${formatSize(d.size_kb)}</td>
+      <td class="doc-date">${formatTime(d.last_sync || d.staged_at)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function sortBy(field) {
+  if (state.sortField === field) {
+    state.sortAsc = !state.sortAsc;
+  } else {
+    state.sortField = field;
+    state.sortAsc = true;
+  }
+  renderDocuments();
+}
+
+function onSearch() {
+  state.searchQuery = document.getElementById('searchInput').value.trim();
+  renderDocuments();
+}
+
+/* ===== Metadata Toggle ===== */
+async function toggleMeta(path, field, value) {
+  try {
+    // Find current doc to get both fields
+    const doc = state.documents.find(d => d.path === path);
+    if (!doc) return;
+
+    const body = { path };
+    body.sync_to_kb = field === 'sync_to_kb' ? value : doc.sync_to_kb;
+    body.pre_chunk = field === 'pre_chunk' ? value : doc.pre_chunk;
+
+    await api('/api/metadata', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+
+    // Update local state
+    doc.sync_to_kb = body.sync_to_kb;
+    doc.pre_chunk = body.pre_chunk;
+    renderDocuments();
+    loadStatus();
+    toast(`${field === 'sync_to_kb' ? '同步' : '预切块'}已${value ? '开启' : '关闭'}`, 'success');
+  } catch (e) {
+    toast('更新元数据失败: ' + e.message, 'error');
+    loadDocuments(); // revert
+  }
+}
+
+/* ===== Batch Operations ===== */
+async function batchSetSync(val) {
+  const docs = getFilteredDocs();
+  const paths = docs.map(d => d.path);
+  if (paths.length === 0) return;
+  try {
+    await api('/api/metadata/batch', {
+      method: 'POST',
+      body: JSON.stringify({ paths, updates: { sync_to_kb: val } })
+    });
+    docs.forEach(d => d.sync_to_kb = val);
+    renderDocuments();
+    loadStatus();
+    toast(`已批量${val ? '开启' : '关闭'}同步 (${paths.length} 篇)`, 'success');
+  } catch (e) {
+    toast('批量操作失败: ' + e.message, 'error');
+  }
+}
+
+async function batchSetChunk(val) {
+  const docs = getFilteredDocs();
+  const paths = docs.map(d => d.path);
+  if (paths.length === 0) return;
+  try {
+    await api('/api/metadata/batch', {
+      method: 'POST',
+      body: JSON.stringify({ paths, updates: { pre_chunk: val } })
+    });
+    docs.forEach(d => d.pre_chunk = val);
+    renderDocuments();
+    loadStatus();
+    toast(`已批量${val ? '开启' : '关闭'}预切块 (${paths.length} 篇)`, 'success');
+  } catch (e) {
+    toast('批量操作失败: ' + e.message, 'error');
+  }
+}
+
+async function batchClear() {
+  const docs = getFilteredDocs();
+  const paths = docs.map(d => d.path);
+  if (paths.length === 0) return;
+  try {
+    await api('/api/metadata/batch', {
+      method: 'POST',
+      body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } })
+    });
+    docs.forEach(d => { d.sync_to_kb = false; d.pre_chunk = false; });
+    renderDocuments();
+    loadStatus();
+    toast(`已取消全部选择 (${paths.length} 篇)`, 'success');
+  } catch (e) {
+    toast('批量操作失败: ' + e.message, 'error');
+  }
+}
+
+/* ===== Document Viewer ===== */
+async function selectDoc(path) {
+  if (state.editing) {
+    if (!confirm('当前正在编辑，是否放弃修改？')) return;
+    state.editing = false;
+  }
+
+  const doc = state.documents.find(d => d.path === path);
+  if (!doc) return;
+
+  state.currentDoc = doc;
+  renderDocuments();
+
+  document.getElementById('viewerTitle').textContent = doc.name;
+  document.getElementById('viewerActions').style.display = '';
+
+  const content = document.getElementById('viewerContent');
+  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="spinner spinner-dark"></span></div>';
+
+  try {
+    const data = await api(`/api/document?path=${encodeURIComponent(path)}`);
+    state.originalContent = data.content || '';
+    renderMarkdown(state.originalContent);
+  } catch (e) {
+    content.innerHTML = `<div class="viewer-empty"><div class="empty-icon">❌</div><span>加载失败: ${escapeHtml(e.message)}</span></div>`;
+  }
+}
+
+function renderMarkdown(text) {
+  const content = document.getElementById('viewerContent');
+  content.innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
+}
+
+/* ===== Basic Markdown Renderer ===== */
+function mdToHtml(md) {
+  if (!md) return '';
+  let html = escapeHtml(md);
+
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code class="lang-${lang}">${code}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Horizontal rule
+  html = html.replace(/^---+$/gm, '<hr>');
+
+  // Blockquote
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Bold and italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Images
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+
+  // Unordered lists
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Paragraphs - convert double newlines
+  html = html.replace(/\n\n+/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+
+  // Wrap in paragraph if not already
+  if (!html.startsWith('<')) html = '<p>' + html + '</p>';
+
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '');
+
+  return html;
+}
+
+/* ===== Edit Mode ===== */
+function toggleEdit() {
+  state.editing = true;
+  const content = document.getElementById('viewerContent');
+  content.innerHTML = `<textarea class="editor-textarea" id="editorArea">${escapeHtml(state.originalContent)}</textarea>`;
+  document.getElementById('btnEdit').style.display = 'none';
+  document.getElementById('btnSave').style.display = '';
+  document.getElementById('btnCancel').style.display = '';
+}
+
+function cancelEdit() {
+  state.editing = false;
+  renderMarkdown(state.originalContent);
+  document.getElementById('btnEdit').style.display = '';
+  document.getElementById('btnSave').style.display = 'none';
+  document.getElementById('btnCancel').style.display = 'none';
+}
+
+async function saveDoc() {
+  const textarea = document.getElementById('editorArea');
+  if (!textarea) return;
+
+  const newContent = textarea.value;
+  try {
+    await api('/api/document', {
+      method: 'POST',
+      body: JSON.stringify({ path: state.currentDoc.path, content: newContent })
+    });
+    state.originalContent = newContent;
+    state.editing = false;
+    renderMarkdown(newContent);
+    document.getElementById('btnEdit').style.display = '';
+    document.getElementById('btnSave').style.display = 'none';
+    document.getElementById('btnCancel').style.display = 'none';
+    toast('文档已保存', 'success');
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+/* ===== Sync Operations ===== */
+async function syncFns() {
+  const btn = document.getElementById('btnSyncFns');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 同步中...';
+  try {
+    const data = await api('/api/sync/fns', { method: 'POST' });
+    toast(`FNS 同步完成: ${data.synced || 0} 篇 (新增 ${data.new || 0}, 更新 ${data.updated || 0})`, 'success');
+    await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
+  } catch (e) {
+    toast('FNS 同步失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📥 从 FNS 同步';
+  }
+}
+
+async function syncKb() {
+  const btn = document.getElementById('btnSyncKb');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 同步中...';
+  try {
+    const data = await api('/api/sync/kb', { method: 'POST' });
+    toast(`知识库同步完成: ${data.synced || 0} 篇${data.errors ? `, 失败 ${data.errors} 篇` : ''}`, data.errors ? 'warning' : 'success');
+    await loadStatus();
+    await loadDocuments();
+  } catch (e) {
+    toast('知识库同步失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📤 同步到知识库';
+  }
+}
+
+/* ===== Utilities ===== */
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function escapeAttr(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;');
+}
+
+/* ===== Init ===== */
+async function init() {
+  initTheme();
+  await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
+
+  // Auto-refresh status every 30s
+  setInterval(loadStatus, 30000);
+}
+
+init();
+</script>
+</body>
+</html>
