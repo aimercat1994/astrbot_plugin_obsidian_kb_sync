@@ -1070,6 +1070,13 @@ class Dashboard:
     def _setup_routes(self):
         app = self.app
 
+        @app.after_request
+        async def add_cors_headers(response):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return response
+
         @app.route("/")
         async def index():
             return DASHBOARD_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
