@@ -72,5 +72,11 @@
     "type": "int",
     "hint": "FNS API 请求失败时的重试次数",
     "default": 3
+  },
+  "verify_interval": {
+    "description": "全量校验间隔（次）",
+    "type": "int",
+    "hint": "每隔多少次同步执行一次全量 doc_id 校验，检测知识库中被删除的文档并自动恢复。0 表示关闭",
+    "default": 10
   }
 }

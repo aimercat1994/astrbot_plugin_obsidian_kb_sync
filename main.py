@@ -56,6 +56,7 @@ class ObsidianKBSyncPlugin(Star):
         self.max_file_size: int = config.get("max_file_size", 100)  # KB，超过此大小跳过
         self.concurrent_fetches: int = config.get("concurrent_fetches", 5)  # 并发获取笔记数
         self.retry_count: int = config.get("retry_count", 3)  # 重试次数
+        self.verify_interval: int = config.get("verify_interval", 10)  # 每 N 次同步全量校验
 
         # 数据目录
         self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_obsidian_kb_sync"
@@ -270,12 +271,24 @@ class ObsidianKBSyncPlugin(Star):
             return None
         try:
             file_name = note_path.split("/")[-1]
+            if not file_name.endswith(".md"):
+                file_name += ".md"
             doc = await helper.upload_document(
                 file_name=file_name,
                 file_content=content.encode("utf-8"),
                 file_type="md",
             )
-            return doc.doc_id
+            # 即时验证：确认文档确实存在于知识库
+            try:
+                verified = await helper.get_document(doc.doc_id)
+                if verified:
+                    return doc.doc_id
+                else:
+                    logger.error(f"上传成功但验证失败（文档不存在）: {note_path}")
+                    return None
+            except Exception as ve:
+                logger.warning(f"上传验证异常（仍记录）: {note_path}: {ve}")
+                return doc.doc_id
         except Exception as e:
             logger.error(f"上传文档失败 {note_path}: {e}")
             return None
@@ -316,6 +329,37 @@ class ObsidianKBSyncPlugin(Star):
 
     # ── 核心同步逻辑 ──────────────────────────────────────────
 
+    async def _verify_all_doc_ids(self) -> int:
+        """定期全量校验：检查 sync_state 中所有 doc_id 是否仍存在于知识库。
+        返回被清除的条目数（这些条目将在下次同步时重新上传）。"""
+        helper = await self._get_kb_helper()
+        if not helper:
+            return 0
+
+        tracked = {
+            p: v["doc_id"]
+            for p, v in self._sync_state.items()
+            if v.get("doc_id")
+        }
+        if not tracked:
+            return 0
+
+        logger.info(f"全量校验: 检查 {len(tracked)} 个 doc_id...")
+        existence = await self._batch_check_docs_exist(list(tracked.values()))
+
+        removed = 0
+        for path, doc_id in tracked.items():
+            if not existence.get(doc_id, True):
+                logger.warning(f"校验发现文档已丢失，将重新上传: {path}")
+                del self._sync_state[path]
+                removed += 1
+
+        if removed:
+            logger.warning(f"全量校验完成: {removed} 个文档已从知识库丢失，将在下次同步时重新上传")
+        else:
+            logger.info(f"全量校验完成: 全部 {len(tracked)} 个文档正常")
+        return removed
+
     async def _do_sync(self, progress_callback=None) -> dict:
         if not self.fns_url or not self.fns_vault:
             return {"error": "未配置 Fast Note Sync 地址或 Vault 名称"}
@@ -328,6 +372,7 @@ class ObsidianKBSyncPlugin(Star):
         result = {
             "total": 0, "new": 0, "updated": 0, "deleted": 0,
             "unchanged": 0, "skipped_size": 0, "errors": 0,
+            "verify_removed": 0,
             "start_time": time.time(),
         }
 
@@ -491,12 +536,21 @@ class ObsidianKBSyncPlugin(Star):
             self._last_sync_time = time.time()
             self._sync_count += 1
 
+            # 定期全量校验：检查所有已记录的 doc_id 是否仍存在于知识库
+            if self.verify_interval > 0 and self._sync_count % self.verify_interval == 0:
+                verify_removed = await self._verify_all_doc_ids()
+                if verify_removed:
+                    result["verify_removed"] = verify_removed
+                    await self._save_state()
+
             summary = (
                 f"同步完成: 新增 {result['new']}, 更新 {result['updated']}, "
                 f"删除 {result['deleted']}, 未变 {result['unchanged']}"
             )
             if result["skipped_size"]:
                 summary += f", 跳过(大文件) {result['skipped_size']}"
+            if result.get("verify_removed"):
+                summary += f", 校验恢复 {result['verify_removed']}"
             summary += f", 错误 {result['errors']}, 耗时 {result['duration']:.1f}s"
             logger.info(summary)
 
@@ -587,6 +641,7 @@ class ObsidianKBSyncPlugin(Star):
             f"⏰ 间隔: {self.sync_interval}s\n"
             f"🚀 并发: {self.concurrent_fetches}\n"
             f"📦 最大文件: {self.max_file_size}KB\n"
+            f"🔍 校验间隔: 每 {self.verify_interval} 次同步\n"
             f"🕐 上次: {last_sync}\n"
             f"📊 次数: {self._sync_count}"
         )
