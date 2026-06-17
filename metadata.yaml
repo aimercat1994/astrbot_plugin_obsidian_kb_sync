@@ -1,6 +1,6 @@
 name: astrbot_plugin_obsidian_kb_sync
 desc: 通过 Fast Note Sync 同步 Obsidian 笔记到 AstrBot 知识库
 author: aimercat
-version: 2.0.0
+version: 2.2.0
 display_name: Obsidian 知识库同步
 short_desc: 通过 Fast Note Sync Service 将 Obsidian 笔记同步到 AstrBot 知识库（v2：并发获取、重试机制、文件大小限制）
