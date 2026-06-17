@@ -1154,7 +1154,7 @@ class Dashboard:
         config = self.app.config
         config["SERVER_NAME"] = f"0.0.0.0:{self.port}"
         self._server_task = asyncio.create_task(
-            self.app.run_task(host="0.0.0.0", port=self.port, use_reloader=False)
+            self.app.run_task(host="0.0.0.0", port=self.port)
         )
         # 等待服务器启动
         await asyncio.sleep(0.5)
