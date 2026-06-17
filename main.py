@@ -20,6 +20,7 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.knowledge_base.chunking.markdown import MarkdownChunker
 
 
 class ObsidianKBSyncPlugin(Star):
@@ -57,6 +58,14 @@ class ObsidianKBSyncPlugin(Star):
         self.concurrent_fetches: int = config.get("concurrent_fetches", 5)  # 并发获取笔记数
         self.retry_count: int = config.get("retry_count", 3)  # 重试次数
         self.verify_interval: int = config.get("verify_interval", 10)  # 每 N 次同步全量校验
+        self.chunk_size: int = config.get("chunk_size", 512)  # 分块大小
+        self.chunk_overlap: int = config.get("chunk_overlap", 50)  # 分块重叠
+
+        # Markdown 分块器（与 AstrBot 知识库使用相同逻辑）
+        self._chunker = MarkdownChunker(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
 
         # 数据目录
         self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_obsidian_kb_sync"
@@ -304,6 +313,101 @@ class ObsidianKBSyncPlugin(Star):
             logger.warning(f"删除文档失败 {doc_id}: {e}")
             return False
 
+    # ── 增量同步 ─────────────────────────────────────────────
+
+    async def _upload_incremental(self, note_path: str, content: str,
+                                  old_doc_id: str) -> tuple[Optional[str], list[str]]:
+        """增量上传：只重新 embedding 变化的 chunk，保留未变 chunk。
+        返回 (doc_id, new_chunk_hashes)"""
+        helper = await self._get_kb_helper()
+        if not helper:
+            return None, []
+
+        try:
+            # 1. 用与 AstrBot 相同的 MarkdownChunker 分块
+            new_chunks = await self._chunker.chunk(content)
+            if not new_chunks:
+                return None, []
+
+            # 2. 计算每块内容 hash
+            new_chunk_hashes = [hashlib.md5(c.encode("utf-8")).hexdigest() for c in new_chunks]
+
+            # 3. 获取旧文档的所有 chunk
+            old_chunks_data = await helper.get_chunks_by_doc_id(old_doc_id, limit=9999)
+
+            # 旧 chunk 的 hash → chunk_id 映射
+            old_hash_to_id = {}
+            for chunk in old_chunks_data:
+                chunk_hash = hashlib.md5(chunk["content"].encode("utf-8")).hexdigest()
+                old_hash_to_id[chunk_hash] = chunk["chunk_id"]
+
+            # 4. 对比差异
+            # 找出需要重新 embedding 的 chunk（新增或内容变化）
+            changed_indices = []
+            for i, h in enumerate(new_chunk_hashes):
+                if h not in old_hash_to_id:
+                    changed_indices.append(i)
+
+            # 找出需要删除的旧 chunk（不再存在的内容）
+            new_hash_set = set(new_chunk_hashes)
+            chunks_to_delete = [
+                cid for h, cid in old_hash_to_id.items()
+                if h not in new_hash_set
+            ]
+
+            unchanged = len(new_chunks) - len(changed_indices)
+            logger.info(
+                f"增量分块: {len(new_chunks)} 块, "
+                f"{unchanged} 未变, {len(changed_indices)} 需重嵌, "
+                f"{len(chunks_to_delete)} 待删除"
+            )
+
+            # 无需变更时直接返回
+            if not changed_indices and not chunks_to_delete:
+                return old_doc_id, new_chunk_hashes
+
+            vec_db = helper.vec_db
+
+            # 5. 删除不再存在的旧 chunk
+            for chunk_id in chunks_to_delete:
+                try:
+                    await vec_db.delete(chunk_id)
+                except Exception:
+                    pass
+
+            # 6. 重新 embedding 变化的 chunk 并插入 vec_db
+            for i in changed_indices:
+                await vec_db.insert(
+                    content=new_chunks[i],
+                    metadata={
+                        "kb_id": self.kb_id,
+                        "kb_doc_id": old_doc_id,
+                        "chunk_index": i,
+                    },
+                )
+
+            # 7. 更新文档元数据（chunk_count）
+            try:
+                doc = await helper.get_document(old_doc_id)
+                if doc:
+                    doc.chunk_count = len(new_chunks)
+                    async with helper.kb_db.get_db() as session:
+                        async with session.begin():
+                            session.add(doc)
+                            await session.commit()
+            except Exception as e:
+                logger.warning(f"更新文档元数据失败: {e}")
+
+            # 8. 刷新知识库统计
+            await helper.kb_db.update_kb_stats(kb_id=self.kb_id, vec_db=vec_db)
+            await helper.refresh_kb()
+
+            return old_doc_id, new_chunk_hashes
+
+        except Exception as e:
+            logger.error(f"增量上传失败 {note_path}: {e}", exc_info=True)
+            return None, []
+
     async def _batch_check_docs_exist(self, doc_ids: list[str]) -> dict[str, bool]:
         """批量检查文档是否存在（并发）"""
         if not doc_ids:
@@ -500,10 +604,29 @@ class ObsidianKBSyncPlugin(Star):
                         continue
 
                     # 上传
-                    doc_id = await self._upload_document(path, content)
+                    doc_id = None
+                    chunk_hashes = []
+
+                    # 已有文档且有 chunk_hashes → 尝试增量上传
+                    if tracked and tracked.get("doc_id") and tracked.get("chunk_hashes"):
+                        doc_id, chunk_hashes = await self._upload_incremental(
+                            path, content, tracked["doc_id"]
+                        )
+
+                    # 新文档 或 增量失败 → 全量上传
+                    if not doc_id:
+                        doc_id = await self._upload_document(path, content)
+                        if doc_id:
+                            # 全量上传成功后计算 chunk_hashes 供下次增量使用
+                            try:
+                                chunks = await self._chunker.chunk(content)
+                                chunk_hashes = [hashlib.md5(c.encode("utf-8")).hexdigest() for c in chunks]
+                            except Exception:
+                                chunk_hashes = []
+
                     if doc_id:
-                        # 删除旧文档
-                        if tracked and tracked.get("doc_id"):
+                        # 全量上传时删除旧文档（增量上传已内部处理）
+                        if tracked and tracked.get("doc_id") and tracked["doc_id"] != doc_id:
                             await self._delete_document(tracked["doc_id"])
 
                         remote_hash = current_notes[path].get("contentHash", "")
@@ -511,6 +634,7 @@ class ObsidianKBSyncPlugin(Star):
                             "hash": content_hash,
                             "remote_hash": remote_hash,
                             "doc_id": doc_id,
+                            "chunk_hashes": chunk_hashes,
                             "sync_time": time.time(),
                         }
                         if tracked:

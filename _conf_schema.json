@@ -78,5 +78,17 @@
     "type": "int",
     "hint": "每隔多少次同步执行一次全量 doc_id 校验，检测知识库中被删除的文档并自动恢复。0 表示关闭",
     "default": 10
+  },
+  "chunk_size": {
+    "description": "分块大小（字符）",
+    "type": "int",
+    "hint": "增量同步时的文本分块大小，需与知识库分块设置一致。默认 512",
+    "default": 512
+  },
+  "chunk_overlap": {
+    "description": "分块重叠（字符）",
+    "type": "int",
+    "hint": "增量同步时的分块重叠大小，需与知识库分块设置一致。默认 50",
+    "default": 50
   }
 }
