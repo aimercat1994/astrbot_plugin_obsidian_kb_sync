@@ -1151,8 +1151,6 @@ class Dashboard:
 
     async def start(self):
         """在后台 asyncio task 中启动 Quart 服务器。"""
-        config = self.app.config
-        config["SERVER_NAME"] = f"0.0.0.0:{self.port}"
         self._server_task = asyncio.create_task(
             self.app.run_task(host="0.0.0.0", port=self.port)
         )
