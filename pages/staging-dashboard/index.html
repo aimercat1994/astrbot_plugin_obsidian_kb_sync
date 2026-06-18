@@ -4,584 +4,212 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Obsidian 暂存区</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<style>
-/* ===== Design Tokens ===== */
-:root {
-  --accent: #6366f1;
-  --accent-light: #818cf8;
-  --accent-subtle: rgba(99,102,241,0.08);
-  --accent-glow: rgba(99,102,241,0.15);
-  --success: #22c55e;
-  --success-subtle: rgba(34,197,94,0.1);
-  --danger: #ef4444;
-  --warning: #f59e0b;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.12);
-  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
-}
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+<style type="text/tailwindcss">
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-[data-theme="dark"] {
-  --accent: #818cf8;
-  --accent-light: #a5b4fc;
-  --accent-subtle: rgba(129,140,248,0.1);
-  --accent-glow: rgba(129,140,248,0.15);
-  --success-subtle: rgba(34,197,94,0.12);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.4);
-}
+/* App shell */
+html, body { @apply h-full overflow-hidden; }
+body { @apply m-0 font-sans; }
 
-/* ===== Layout Shell ===== */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; margin: 0; }
-body {
-  display: flex; flex-direction: column;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: var(--pico-background-color);
-}
-
-/* ===== Top Bar ===== */
-.topbar {
-  display: flex; align-items: center; gap: 14px;
-  padding: 0 20px; height: 56px;
-  background: var(--pico-card-background-color);
-  border-bottom: 1px solid var(--pico-muted-border-color);
-  box-shadow: var(--shadow-sm);
-  flex-shrink: 0; z-index: 100;
-  position: relative;
-}
-.topbar::after {
-  content: '';
-  position: absolute; bottom: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-light), var(--success));
-  opacity: 0.7;
-}
-.topbar-title {
-  font-size: 1.15rem; font-weight: 700;
-  display: flex; align-items: center; gap: 8px;
-  white-space: nowrap;
-  background: linear-gradient(135deg, var(--accent), var(--accent-light));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.topbar-title .icon {
-  font-size: 1.3rem;
-  -webkit-text-fill-color: initial;
-}
-.topbar-spacer { flex: 1; }
-.topbar-actions { display: flex; gap: 8px; align-items: center; }
-
-/* ===== Status Indicators ===== */
-.status-indicators { display: flex; gap: 10px; }
-.status-chip {
-  display: flex; align-items: center; gap: 5px;
-  padding: 4px 10px; border-radius: 20px;
-  font-size: 0.75rem; font-weight: 500;
-  background: var(--pico-card-background-color);
-  border: 1px solid var(--pico-muted-border-color);
-  transition: all var(--transition);
-}
-.status-chip .dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--pico-muted-border-color);
-  transition: background var(--transition);
-}
-.status-chip.connected {
-  border-color: var(--success);
-  background: var(--success-subtle);
-}
-.status-chip.connected .dot {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success);
-}
-.status-chip.disconnected {
-  border-color: var(--danger);
-  opacity: 0.7;
-}
-.status-chip.disconnected .dot { background: var(--danger); }
-
-/* ===== Buttons ===== */
-.btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 14px; border-radius: var(--radius-sm);
-  font-size: 0.82rem; font-weight: 500;
-  border: 1px solid var(--pico-muted-border-color);
-  background: var(--pico-card-background-color);
-  color: var(--pico-color); cursor: pointer;
-  transition: all var(--transition);
-  white-space: nowrap;
-}
-.btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-.btn:active { transform: translateY(0); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-.btn-primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-light));
-  color: #fff; border-color: transparent;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.25);
-}
-.btn-primary:hover {
-  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
-  color: #fff; border-color: transparent;
-  background: linear-gradient(135deg, var(--accent-light), var(--accent));
-}
-
-.btn-success {
-  background: linear-gradient(135deg, #16a34a, #22c55e);
-  color: #fff; border-color: transparent;
-  box-shadow: 0 2px 8px rgba(34,197,94,0.25);
-}
-.btn-success:hover {
-  box-shadow: 0 4px 14px rgba(34,197,94,0.35);
-  color: #fff; border-color: transparent;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-}
-
-.btn-sm { padding: 4px 10px; font-size: 0.78rem; }
-.btn-icon {
-  background: none; border: none; cursor: pointer;
-  font-size: 1.2rem; padding: 4px 6px; border-radius: var(--radius-sm);
-  transition: all var(--transition); line-height: 1;
-}
-.btn-icon:hover { background: var(--accent-subtle); }
-
-/* ===== Main Wrapper ===== */
-.main-wrapper {
-  flex: 1; display: flex; overflow: hidden; min-height: 0;
-}
-
-/* ===== Sidebar ===== */
-.sidebar {
-  width: 230px; flex-shrink: 0; display: flex; flex-direction: column;
-  background: var(--pico-card-background-color);
-  border-right: 1px solid var(--pico-muted-border-color);
-  overflow: hidden;
-}
-.sidebar-header {
-  padding: 14px 16px; font-weight: 600; font-size: 0.85rem;
-  border-bottom: 1px solid var(--pico-muted-border-color);
-  color: var(--pico-muted-color);
-  text-transform: uppercase; letter-spacing: 0.5px;
-}
-.sidebar-content { flex: 1; overflow-y: auto; padding: 8px 0; }
-
-/* Folder items */
-.folder-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 14px; cursor: pointer; font-size: 0.84rem;
-  border-radius: var(--radius-sm); margin: 1px 8px;
-  transition: all var(--transition); color: var(--pico-color);
-}
-.folder-item:hover {
-  background: var(--accent-subtle);
-}
-.folder-item.active {
-  background: linear-gradient(135deg, var(--accent-subtle), var(--accent-glow));
-  color: var(--accent); font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-.folder-count {
-  margin-left: auto; font-size: 0.72rem;
-  background: var(--pico-muted-border-color);
-  color: var(--pico-muted-color);
-  padding: 1px 7px; border-radius: 10px;
-  font-weight: 500; min-width: 22px; text-align: center;
-}
-.folder-item.active .folder-count {
-  background: var(--accent); color: #fff;
-}
-
-/* ===== Content Area ===== */
-.content-area {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
-  background: var(--pico-background-color);
-}
-
-/* Toolbar */
-.content-toolbar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px;
-  background: var(--pico-card-background-color);
-  border-bottom: 1px solid var(--pico-muted-border-color);
-  flex-shrink: 0;
-}
-.content-toolbar input[type="search"] {
-  margin: 0; flex: 1; max-width: 320px;
-  border-radius: 20px; padding-left: 14px;
-  font-size: 0.84rem;
-  background: var(--pico-background-color);
-  border-color: var(--pico-muted-border-color);
-  transition: all var(--transition);
-}
-.content-toolbar input[type="search"]:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-subtle);
-}
-.batch-actions { display: flex; gap: 4px; }
-
-/* ===== Split View ===== */
-.split-view { flex: 1; display: flex; overflow: hidden; min-height: 0; }
-
-/* Doc List Panel */
-.doc-list-panel {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
-  border-right: 1px solid var(--pico-muted-border-color);
-}
-.doc-table-wrapper { flex: 1; overflow: auto; }
-.doc-table {
-  width: 100%; font-size: 0.82rem; margin: 0;
-  border-collapse: separate; border-spacing: 0;
-}
-.doc-table thead {
-  position: sticky; top: 0; z-index: 10;
-  background: var(--pico-card-background-color);
-}
-.doc-table th {
-  cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: 0.76rem; font-weight: 600;
-  padding: 10px 12px; text-transform: uppercase; letter-spacing: 0.3px;
-  color: var(--pico-muted-color);
-  border-bottom: 2px solid var(--pico-muted-border-color);
-  transition: color var(--transition);
-}
-.doc-table th:hover { color: var(--accent); }
-.doc-table th.cb-col { cursor: default; text-align: center; width: 40px; }
-.doc-table th.sort-asc::after { content: ' ▲'; font-size: 0.65rem; color: var(--accent); }
-.doc-table th.sort-desc::after { content: ' ▼'; font-size: 0.65rem; color: var(--accent); }
-.doc-table td { padding: 8px 12px; vertical-align: middle; }
-.doc-table tbody tr {
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.doc-table tbody tr:hover {
-  background: var(--accent-subtle);
-}
-.doc-table tbody tr.selected {
-  background: var(--accent-glow);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-.doc-table input[type="checkbox"] {
-  margin: 0; cursor: pointer; accent-color: var(--accent);
-  width: 15px; height: 15px;
-}
-
-/* Doc name cell */
-.doc-name { display: flex; align-items: center; gap: 8px; }
-.doc-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.doc-status-dot.synced {
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(34,197,94,0.4);
-}
-.doc-status-dot.selected {
-  background: var(--accent);
-  box-shadow: 0 0 6px rgba(99,102,241,0.4);
-}
-.doc-status-dot.none { background: var(--pico-muted-border-color); }
-.doc-name-text {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-weight: 500;
-}
-.doc-size, .doc-date {
-  white-space: nowrap; opacity: 0.65; font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Empty state */
-.doc-list-empty {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 10px;
-  color: var(--pico-muted-color);
-}
-.empty-icon { font-size: 2.8rem; opacity: 0.4; }
-
-/* ===== Viewer Panel ===== */
-.viewer-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-.viewer-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px;
-  background: var(--pico-card-background-color);
-  border-bottom: 1px solid var(--pico-muted-border-color);
-  flex-shrink: 0;
-}
-.viewer-title {
-  font-weight: 600; font-size: 0.95rem;
-  display: flex; align-items: center; gap: 6px;
-}
-.viewer-title::before { content: '📄'; font-size: 1rem; }
-.viewer-actions { display: flex; gap: 6px; }
-.viewer-content {
-  flex: 1; overflow-y: auto; padding: 20px 24px;
-}
-
-/* Markdown render */
-.md-render {
-  font-size: 0.9rem; line-height: 1.8;
-  color: var(--pico-color);
-}
-.md-render h1 {
-  font-size: 1.6rem; margin: 1.2rem 0 0.6rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 2px solid var(--accent-subtle);
-  font-weight: 700;
-}
-.md-render h2 {
-  font-size: 1.35rem; margin: 1rem 0 0.5rem;
-  font-weight: 700; color: var(--accent);
-}
-.md-render h3 { font-size: 1.15rem; margin: 0.8rem 0 0.4rem; font-weight: 600; }
-.md-render h4 { font-size: 1rem; margin: 0.6rem 0 0.3rem; font-weight: 600; }
+/* Markdown content */
+.md-render { @apply text-base leading-7; }
+.md-render h1 { @apply text-2xl font-bold mt-6 mb-3 pb-2 border-b-2 border-primary/20; }
+.md-render h2 { @apply text-xl font-bold mt-5 mb-2 text-primary; }
+.md-render h3 { @apply text-lg font-semibold mt-4 mb-2; }
+.md-render h4 { @apply text-base font-semibold mt-3 mb-1; }
 .md-render pre {
-  background: var(--pico-card-background-color);
-  padding: 14px 16px; border-radius: var(--radius-md);
-  overflow-x: auto; font-size: 0.82rem;
-  border: 1px solid var(--pico-muted-border-color);
-  box-shadow: var(--shadow-sm);
+  @apply bg-base-200 p-4 rounded-xl overflow-x-auto text-sm
+         border border-base-300 shadow-sm;
 }
-.md-render code {
-  font-size: 0.85em;
-  background: var(--accent-subtle);
-  padding: 2px 5px; border-radius: 4px;
+.md-render code { @apply text-sm; }
+.md-render :not(pre) > code {
+  @apply bg-primary/10 text-primary px-1.5 py-0.5 rounded;
 }
-.md-render pre code { background: none; padding: 0; }
 .md-render blockquote {
-  border-left: 3px solid var(--accent);
-  padding: 8px 16px; margin: 0.8rem 0;
-  background: var(--accent-subtle);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  opacity: 0.9;
+  @apply border-l-4 border-primary pl-4 my-3 py-2
+         bg-primary/5 rounded-r-lg italic;
 }
-.md-render img { max-width: 100%; border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
-.md-render ul, .md-render ol { padding-left: 1.5rem; }
-.md-render li { margin-bottom: 0.2rem; }
-.md-render hr {
-  border: none; border-top: 2px solid var(--accent-subtle); margin: 1.2rem 0;
-}
-.md-render a {
-  color: var(--accent); text-decoration: none;
-  border-bottom: 1px solid var(--accent-subtle);
-  transition: all var(--transition);
-}
-.md-render a:hover { border-bottom-color: var(--accent); }
-.md-render table {
-  width: 100%; border-collapse: collapse; margin: 0.8rem 0;
-  font-size: 0.85rem;
-}
-.md-render th, .md-render td {
-  padding: 8px 12px; border: 1px solid var(--pico-muted-border-color);
-}
-.md-render th {
-  background: var(--accent-subtle);
-  font-weight: 600; text-align: left;
-}
+.md-render img { @apply max-w-full rounded-xl shadow-md my-3; }
+.md-render ul, .md-render ol { @apply pl-6 my-2; }
+.md-render li { @apply mb-1; }
+.md-render hr { @apply border-t-2 border-primary/10 my-4; }
+.md-render a { @apply text-primary underline decoration-primary/30 hover:decoration-primary transition-colors; }
+.md-render table { @apply w-full border-collapse my-3 text-sm; }
+.md-render th { @apply bg-primary/10 font-semibold text-left p-2 border border-base-300; }
+.md-render td { @apply p-2 border border-base-300; }
+.md-render strong { @apply font-bold; }
+.md-render em { @apply italic; }
 
-/* Editor textarea */
+/* Editor */
 .editor-textarea {
-  width: 100%; height: 100%; resize: none;
-  font-family: 'JetBrains Mono', 'Fira Code', var(--pico-font-family-monospace);
-  font-size: 0.85rem; line-height: 1.7;
-  border: none; outline: none;
-  background: var(--pico-background-color);
-  color: var(--pico-color); padding: 16px;
+  @apply w-full h-full resize-none border-0 outline-none
+         bg-base-100 text-base-content p-4 leading-relaxed;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.85rem;
   tab-size: 2;
 }
 
-/* Viewer empty state */
-.viewer-empty {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 10px;
-  color: var(--pico-muted-color);
+/* Folder active indicator */
+.folder-active-indicator {
+  @apply absolute left-0 top-1 bottom-1 w-1 rounded-r-full bg-primary;
 }
 
-/* ===== Bottom Bar ===== */
-.bottombar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 20px; height: 32px;
-  background: var(--pico-card-background-color);
-  border-top: 1px solid var(--pico-muted-border-color);
-  font-size: 0.76rem; color: var(--pico-muted-color);
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.bottombar .sep { opacity: 0.25; margin: 0 2px; }
-.bottombar .stat-highlight { color: var(--accent); font-weight: 600; }
+/* Sort indicators */
+th.sort-asc::after { content: ' ▲'; @apply text-xs text-primary; }
+th.sort-desc::after { content: ' ▼'; @apply text-xs text-primary; }
 
-/* ===== Spinner ===== */
-.spinner {
-  display: inline-block; width: 14px; height: 14px;
-  border: 2px solid var(--pico-muted-border-color);
-  border-top-color: var(--accent);
-  border-radius: 50%; animation: spin 0.6s linear infinite;
+/* Toast animation */
+@keyframes toast-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+.toast-animate-in { animation: toast-slide-in 0.3s ease-out; }
 
-/* ===== Toast ===== */
-.toast-container {
-  position: fixed; top: 64px; right: 16px; z-index: 9999;
-  display: flex; flex-direction: column; gap: 8px;
-  pointer-events: none;
-}
-.toast {
-  padding: 12px 18px; border-radius: var(--radius-md);
-  font-size: 0.84rem; color: #fff;
-  box-shadow: var(--shadow-lg);
-  animation: toast-in 0.35s cubic-bezier(0.34,1.56,0.64,1);
-  pointer-events: auto;
-  display: flex; align-items: center; gap: 8px;
-  backdrop-filter: blur(8px);
-  max-width: 400px;
-}
-.toast::before { font-size: 1rem; }
-.toast.info { background: linear-gradient(135deg, #6366f1, #818cf8); }
-.toast.info::before { content: 'ℹ️'; }
-.toast.success { background: linear-gradient(135deg, #16a34a, #22c55e); }
-.toast.success::before { content: '✅'; }
-.toast.error { background: linear-gradient(135deg, #dc2626, #ef4444); }
-.toast.error::before { content: '❌'; }
-.toast.warning { background: linear-gradient(135deg, #d97706, #f59e0b); }
-.toast.warning::before { content: '⚠️'; }
-.toast.fade-out { opacity: 0; transform: translateX(20px); transition: all 0.3s ease; }
-@keyframes toast-in {
-  from { transform: translateX(100%) scale(0.95); opacity: 0; }
-  to { transform: translateX(0) scale(1); opacity: 1; }
-}
+/* Status dot glow */
+.dot-glow-success { box-shadow: 0 0 6px oklch(var(--su)); }
+.dot-glow-error   { box-shadow: 0 0 6px oklch(var(--er)); }
 
-/* ===== Responsive ===== */
-@media (max-width: 768px) {
-  .sidebar { display: none; }
-  .split-view { flex-direction: column; }
-  .doc-list-panel {
-    border-right: none;
-    border-bottom: 1px solid var(--pico-muted-border-color);
-    max-height: 40vh;
-  }
-  .topbar { padding: 0 12px; }
-  .status-indicators { display: none; }
-}
-
-/* ===== Scrollbar ===== */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--pico-muted-border-color);
-  border-radius: 3px;
+  @apply bg-base-300 rounded-full;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+::-webkit-scrollbar-thumb:hover { @apply bg-primary; }
 
-/* ===== Selection highlight ===== */
-::selection {
-  background: var(--accent-glow);
-  color: var(--pico-color);
-}
+/* Selection */
+::selection { @apply bg-primary/20; }
 </style>
 </head>
-<body>
+<body class="flex flex-col bg-base-100 text-base-content">
 
-<!-- Top Bar -->
-<header class="topbar">
-  <div class="topbar-title">
-    <span class="icon">📚</span> Obsidian 暂存区
+<!-- ===== Top Bar ===== -->
+<div class="navbar bg-base-100 border-b border-base-300 shadow-sm shrink-0 px-4 min-h-[56px]
+            relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px]
+            after:bg-gradient-to-r after:from-primary after:via-secondary after:to-accent after:opacity-60">
+  <div class="navbar-start gap-3">
+    <span class="text-xl">📚</span>
+    <span class="text-lg font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+      Obsidian 暂存区
+    </span>
   </div>
-  <div class="status-indicators">
-    <div class="status-chip" id="fnsStatus"><span class="dot"></span><span>FNS</span></div>
-    <div class="status-chip" id="kbStatus"><span class="dot"></span><span>知识库</span></div>
+  <div class="navbar-center gap-2">
+    <div class="badge badge-sm gap-1.5 py-2.5 px-3 font-medium" id="fnsStatus">
+      <span class="w-2 h-2 rounded-full bg-base-300 inline-block dot-glow" id="fnsDot"></span>
+      FNS
+    </div>
+    <div class="badge badge-sm gap-1.5 py-2.5 px-3 font-medium" id="kbStatus">
+      <span class="w-2 h-2 rounded-full bg-base-300 inline-block dot-glow" id="kbDot"></span>
+      知识库
+    </div>
   </div>
-  <div class="topbar-spacer"></div>
-  <div class="topbar-actions">
-    <button class="btn" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
-    <button class="btn btn-success" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
-    <button class="btn-icon" onclick="toggleTheme()" title="切换主题" id="themeToggle">🌙</button>
+  <div class="navbar-end gap-2">
+    <button class="btn btn-sm btn-ghost border border-base-300 gap-1" id="btnSyncFns" onclick="syncFns()">
+      📥 从 FNS 同步
+    </button>
+    <button class="btn btn-sm btn-success text-white gap-1" id="btnSyncKb" onclick="syncKb()">
+      📤 同步到知识库
+    </button>
+    <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg">
+      <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+      <span class="swap-on">☀️</span>
+      <span class="swap-off">🌙</span>
+    </label>
   </div>
-</header>
+</div>
 
-<!-- Main -->
-<div class="main-wrapper">
+<!-- ===== Main ===== -->
+<div class="flex flex-1 overflow-hidden min-h-0">
 
   <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">📁 文件夹</div>
-    <div class="sidebar-content" id="folderList"></div>
+  <aside class="w-[230px] shrink-0 bg-base-100 border-r border-base-300 flex flex-col overflow-hidden">
+    <div class="px-4 py-3 text-xs font-semibold text-base-content/50 uppercase tracking-wider border-b border-base-300">
+      📁 文件夹
+    </div>
+    <div class="flex-1 overflow-y-auto py-2 space-y-0.5" id="folderList"></div>
   </aside>
 
   <!-- Content -->
-  <main class="content-area">
-    <div class="content-toolbar">
-      <input type="search" id="searchInput" placeholder="🔍 搜索文件名..." oninput="onSearch()">
-      <div class="batch-actions">
-        <button class="btn btn-sm" onclick="batchSetSync(true)">全选同步</button>
-        <button class="btn btn-sm" onclick="batchSetChunk(true)">全选预切块</button>
-        <button class="btn btn-sm" onclick="batchClear()">取消全选</button>
+  <main class="flex-1 flex flex-col overflow-hidden min-w-0">
+
+    <!-- Toolbar -->
+    <div class="flex items-center gap-3 px-4 py-2.5 bg-base-100 border-b border-base-300 shrink-0">
+      <label class="input input-sm input-bordered flex items-center gap-2 flex-1 max-w-[320px] rounded-full">
+        🔍
+        <input type="search" placeholder="搜索文件名..." class="grow" id="searchInput" oninput="onSearch()">
+      </label>
+      <div class="flex gap-1.5">
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchSetSync(true)">全选同步</button>
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchSetChunk(true)">全选预切块</button>
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchClear()">取消全选</button>
       </div>
     </div>
 
-    <div class="split-view">
-      <!-- Doc list -->
-      <div class="doc-list-panel" id="docListPanel">
-        <div class="doc-table-wrapper" id="docTableWrapper">
-          <table class="doc-table" id="docTable">
+    <!-- Split View -->
+    <div class="flex flex-1 overflow-hidden min-h-0">
+
+      <!-- Doc List -->
+      <div class="flex-1 flex flex-col overflow-hidden min-w-0 border-r border-base-300">
+        <div class="flex-1 overflow-auto" id="docTableWrapper">
+          <table class="table table-sm table-pin-rows" id="docTable">
             <thead>
-              <tr>
-                <th class="cb-col">同步</th>
-                <th class="cb-col">切块</th>
-                <th onclick="sortBy('name')" data-sort="name">文件名</th>
-                <th onclick="sortBy('size_kb')" data-sort="size_kb">大小</th>
-                <th onclick="sortBy('last_sync')" data-sort="last_sync">最后同步</th>
+              <tr class="bg-base-100">
+                <th class="w-10 text-center">同步</th>
+                <th class="w-10 text-center">切块</th>
+                <th class="cursor-pointer select-none hover:text-primary" onclick="sortBy('name')" data-sort="name">文件名</th>
+                <th class="cursor-pointer select-none hover:text-primary w-20" onclick="sortBy('size_kb')" data-sort="size_kb">大小</th>
+                <th class="cursor-pointer select-none hover:text-primary w-28" onclick="sortBy('last_sync')" data-sort="last_sync">最后同步</th>
               </tr>
             </thead>
             <tbody id="docTableBody"></tbody>
           </table>
         </div>
-        <div class="doc-list-empty" id="docListEmpty" style="display:none">
-          <div class="empty-icon">📄</div>
-          <span>暂无文档</span>
+        <div class="flex-1 flex flex-col items-center justify-center gap-2 text-base-content/40" id="docListEmpty" style="display:none">
+          <span class="text-5xl">📄</span>
+          <span class="text-sm">暂无文档</span>
         </div>
       </div>
 
       <!-- Viewer -->
-      <div class="viewer-panel" id="viewerPanel">
-        <div class="viewer-header">
-          <span class="viewer-title" id="viewerTitle">选择文档以预览</span>
-          <div class="viewer-actions" id="viewerActions" style="display:none">
-            <button class="btn btn-sm" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
-            <button class="btn btn-sm btn-primary" id="btnSave" onclick="saveDoc()" style="display:none">💾 保存</button>
-            <button class="btn btn-sm" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
+      <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div class="flex items-center justify-between px-4 py-2.5 bg-base-100 border-b border-base-300 shrink-0">
+          <span class="font-semibold text-sm flex items-center gap-2" id="viewerTitle">
+            <span>📄</span> 选择文档以预览
+          </span>
+          <div class="flex gap-1.5" id="viewerActions" style="display:none">
+            <button class="btn btn-xs btn-ghost border border-base-300 gap-1" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
+            <button class="btn btn-xs btn-primary text-white gap-1" id="btnSave" onclick="saveDoc()" style="display:none">💾 保存</button>
+            <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
           </div>
         </div>
-        <div class="viewer-content" id="viewerContent">
-          <div class="viewer-empty">
-            <div class="empty-icon">👀</div>
-            <span>点击左侧文档查看内容</span>
+        <div class="flex-1 overflow-y-auto p-5" id="viewerContent">
+          <div class="flex flex-col items-center justify-center h-full gap-3 text-base-content/40">
+            <span class="text-5xl">👀</span>
+            <span class="text-sm">点击左侧文档查看内容</span>
           </div>
         </div>
       </div>
+
     </div>
   </main>
 </div>
 
-<!-- Bottom Bar -->
-<footer class="bottombar">
-  <span id="statusTotal">共 <span class="stat-highlight">0</span> 篇</span>
-  <span class="sep">|</span>
-  <span id="statusSelected">已选 <span class="stat-highlight">0</span> 篇</span>
-  <span class="sep">|</span>
-  <span id="statusSynced">已同步 <span class="stat-highlight">0</span> 篇</span>
-  <span class="sep">|</span>
-  <span id="statusLastSync">上次同步: --</span>
-</footer>
+<!-- ===== Bottom Bar ===== -->
+<div class="flex items-center gap-3 px-5 h-8 bg-base-100 border-t border-base-300
+            text-xs text-base-content/50 shrink-0 tabular-nums" id="bottomBar">
+  <span>共 <span class="text-primary font-semibold" id="statTotal">0</span> 篇</span>
+  <span class="opacity-20">|</span>
+  <span>已选 <span class="text-primary font-semibold" id="statSelected">0</span> 篇</span>
+  <span class="opacity-20">|</span>
+  <span>已同步 <span class="text-primary font-semibold" id="statSynced">0</span> 篇</span>
+  <span class="opacity-20">|</span>
+  <span id="statLastSync">上次同步: --</span>
+</div>
 
 <!-- Toast Container -->
-<div class="toast-container" id="toastContainer"></div>
+<div class="fixed top-[64px] right-4 z-[9999] flex flex-col gap-2 pointer-events-none" id="toastContainer"></div>
 
 <!-- Bridge SDK -->
 <script src="/api/plugin/page/bridge-sdk.js"></script>
@@ -603,7 +231,7 @@ let state = {
   lastKbSync: null,
 };
 
-/* ===== Bridge / API Helpers ===== */
+/* ===== Bridge / API ===== */
 const bridge = window.AstrBotPluginPage;
 
 function isBridge() {
@@ -615,16 +243,14 @@ async function api(path, opts = {}) {
   if (isBridge()) {
     const endpoint = path.replace(/^\//, '');
     try {
-      let result;
       if (method === 'GET') {
-        result = await bridge.apiGet(endpoint, opts.params || {});
+        return await bridge.apiGet(endpoint, opts.params || {});
       } else {
         const body = opts.body
           ? (typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body)
           : {};
-        result = await bridge.apiPost(endpoint, body);
+        return await bridge.apiPost(endpoint, body);
       }
-      return result;
     } catch (e) {
       throw new Error(e.message || 'Bridge API error');
     }
@@ -647,64 +273,74 @@ async function api(path, opts = {}) {
 
 /* ===== Theme ===== */
 function initTheme() {
+  let isDark = false;
   if (isBridge()) {
     const ctx = bridge.getContext();
-    if (ctx && ctx.isDark !== undefined) {
-      document.documentElement.setAttribute('data-theme', ctx.isDark ? 'dark' : 'light');
-      const btn = document.getElementById('themeToggle');
-      if (btn) btn.textContent = ctx.isDark ? '☀️' : '🌙';
-    }
-    return;
+    if (ctx && ctx.isDark !== undefined) isDark = ctx.isDark;
+  } else {
+    try { isDark = localStorage.getItem('staging-theme') === 'dark'; } catch (e) {}
   }
-  try {
-    const saved = localStorage.getItem('staging-theme');
-    if (saved === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      const btn = document.getElementById('themeToggle');
-      if (btn) btn.textContent = '☀️';
-    }
-  } catch (e) {}
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  document.getElementById('themeToggle').checked = isDark;
 }
 
 function toggleTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  document.getElementById('themeToggle').textContent = isDark ? '🌙' : '☀️';
-  try { localStorage.setItem('staging-theme', isDark ? 'light' : 'dark'); } catch (e) {}
+  const isDark = document.getElementById('themeToggle').checked;
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  try { localStorage.setItem('staging-theme', isDark ? 'dark' : 'light'); } catch (e) {}
 }
 
 /* ===== Toast ===== */
 function toast(msg, type = 'info') {
   const container = document.getElementById('toastContainer');
+  const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+  const colors = {
+    info: 'alert-info',
+    success: 'alert-success',
+    error: 'alert-error',
+    warning: 'alert-warning'
+  };
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
+  el.className = `alert ${colors[type] || 'alert-info'} shadow-lg pointer-events-auto toast-animate-in text-sm py-2 px-4 gap-2`;
+  el.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(msg)}</span>`;
   container.appendChild(el);
   setTimeout(() => {
-    el.classList.add('fade-out');
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(20px)';
+    el.style.transition = 'all 0.3s ease';
     setTimeout(() => el.remove(), 300);
   }, 3500);
 }
 
-/* ===== Status Bar ===== */
+/* ===== Status ===== */
 async function loadStatus() {
   try {
     const s = await api('api/status');
-    const totalEl = document.getElementById('statusTotal');
-    const selEl = document.getElementById('statusSelected');
-    const syncEl = document.getElementById('statusSynced');
-    totalEl.innerHTML = `共 <span class="stat-highlight">${s.total_documents ?? 0}</span> 篇`;
-    selEl.innerHTML = `已选 <span class="stat-highlight">${s.selected_for_sync ?? 0}</span> 篇`;
-    syncEl.innerHTML = `已同步 <span class="stat-highlight">${s.synced_to_kb ?? 0}</span> 篇`;
-    const lastSync = state.lastFnsSync ? formatTime(state.lastFnsSync) : '--';
-    document.getElementById('statusLastSync').textContent = `上次同步: ${lastSync}`;
+    document.getElementById('statTotal').textContent = s.total_documents ?? 0;
+    document.getElementById('statSelected').textContent = s.selected_for_sync ?? 0;
+    document.getElementById('statSynced').textContent = s.synced_to_kb ?? 0;
+    document.getElementById('statLastSync').textContent =
+      `上次同步: ${state.lastFnsSync ? formatTime(state.lastFnsSync) : '--'}`;
 
-    const fnsEl = document.getElementById('fnsStatus');
-    const kbEl = document.getElementById('kbStatus');
-    fnsEl.className = `status-chip ${state.lastFnsSync ? 'connected' : 'disconnected'}`;
-    kbEl.className = `status-chip ${state.lastKbSync ? 'connected' : 'disconnected'}`;
+    updateStatusBadge('fnsStatus', 'fnsDot', !!state.lastFnsSync);
+    updateStatusBadge('kbStatus', 'kbDot', !!state.lastKbSync);
   } catch (e) {
     console.error('Status load failed:', e);
+  }
+}
+
+function updateStatusBadge(badgeId, dotId, connected) {
+  const badge = document.getElementById(badgeId);
+  const dot = document.getElementById(dotId);
+  badge.className = badge.className.replace(/badge-(success|error|ghost)/g, '').trim();
+  if (connected) {
+    badge.classList.add('badge-success', 'text-white');
+    dot.className = dot.className.replace(/bg-\S+/g, '').trim();
+    dot.classList.add('bg-white', 'dot-glow-success');
+  } else {
+    badge.classList.add('badge-ghost', 'border', 'border-base-300');
+    dot.className = dot.className.replace(/bg-\S+/g, '').trim();
+    dot.classList.add('bg-base-content/30');
   }
 }
 
@@ -752,10 +388,19 @@ function _renderTree(node, prefix, depth) {
     const isActive = state.currentFolder === fullPath;
     const hasChildren = Object.keys(child).some(k => k !== '__files__');
     const indent = depth * 16;
-    html += `<div class="folder-item ${isActive ? 'active' : ''}" style="padding-left:${14 + indent}px" onclick="selectFolder('${escapeAttr(fullPath)}')">
-      <span>${hasChildren ? '📁' : '📂'}</span><span title="${escapeAttr(fullPath)}">${escapeHtml(name)}</span>
-      <span class="folder-count">${count}</span>
-    </div>`;
+    html += `
+      <li>
+        <a onclick="selectFolder('${escapeAttr(fullPath)}')"
+           class="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
+                  ${isActive ? 'bg-primary/15 text-primary font-semibold' : 'hover:bg-base-200'}"
+           style="padding-left:${12 + indent}px"
+           title="${escapeAttr(fullPath)}">
+          ${isActive ? '<div class="folder-active-indicator"></div>' : ''}
+          <span class="text-base">${hasChildren ? '📁' : '📂'}</span>
+          <span class="truncate flex-1">${escapeHtml(name)}</span>
+          <span class="badge badge-xs ${isActive ? 'badge-primary text-white' : 'badge-ghost'}">${count}</span>
+        </a>
+      </li>`;
     if (hasChildren) {
       html += _renderTree(child, fullPath, depth + 1);
     }
@@ -766,12 +411,21 @@ function _renderTree(node, prefix, depth) {
 function renderFolders() {
   const container = document.getElementById('folderList');
   const totalCount = state.folderTree ? _countFiles(state.folderTree) : state.folders.reduce((s, f) => s + (f.count || 0), 0);
-  let html = `<div class="folder-item ${state.currentFolder === null ? 'active' : ''}" onclick="selectFolder(null)">
-    <span>📋</span><span>全部</span><span class="folder-count">${totalCount}</span>
-  </div>`;
+  let html = `<ul class="menu menu-sm w-full p-0">
+    <li>
+      <a onclick="selectFolder(null)"
+         class="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
+                ${state.currentFolder === null ? 'bg-primary/15 text-primary font-semibold' : 'hover:bg-base-200'}">
+        ${state.currentFolder === null ? '<div class="folder-active-indicator"></div>' : ''}
+        <span class="text-base">📋</span>
+        <span class="flex-1">全部</span>
+        <span class="badge badge-xs ${state.currentFolder === null ? 'badge-primary text-white' : 'badge-ghost'}">${totalCount}</span>
+      </a>
+    </li>`;
   if (state.folderTree) {
     html += _renderTree(state.folderTree, '', 0);
   }
+  html += '</ul>';
   container.innerHTML = html;
 }
 
@@ -823,7 +477,7 @@ function renderDocuments() {
   const empty = document.getElementById('docListEmpty');
   const table = document.getElementById('docTable');
 
-  document.querySelectorAll('.doc-table th[data-sort]').forEach(th => {
+  document.querySelectorAll('th[data-sort]').forEach(th => {
     th.classList.remove('sort-asc', 'sort-desc');
     if (th.dataset.sort === state.sortField) th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
   });
@@ -839,14 +493,28 @@ function renderDocuments() {
 
   tbody.innerHTML = docs.map(d => {
     const name = (d.path || '').split('/').pop();
-    const statusClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
+    const statusClass = d.kb_doc_id ? 'bg-success dot-glow-success' : (d.sync_to_kb ? 'bg-primary' : 'bg-base-300');
     const isActive = state.currentDoc && state.currentDoc.path === d.path;
-    return `<tr class="${isActive ? 'selected' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
-      <td style="text-align:center"><input type="checkbox" ${d.sync_to_kb ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)"></td>
-      <td style="text-align:center"><input type="checkbox" ${d.pre_chunk !== false ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
-      <td><div class="doc-name"><span class="doc-status-dot ${statusClass}"></span><span class="doc-name-text" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span></div></td>
-      <td class="doc-size">${formatSize(d.size_kb)}</td>
-      <td class="doc-date">${formatTime(d.last_sync || d.staged_at)}</td>
+    return `<tr class="cursor-pointer transition-colors hover:bg-base-200 ${isActive ? 'bg-primary/10' : ''}"
+               onclick="selectDoc('${escapeAttr(d.path)}')">
+      <td class="text-center">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+               ${d.sync_to_kb ? 'checked' : ''}
+               onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)">
+      </td>
+      <td class="text-center">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+               ${d.pre_chunk !== false ? 'checked' : ''}
+               onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)">
+      </td>
+      <td>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full shrink-0 ${statusClass}"></span>
+          <span class="truncate font-medium" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span>
+        </div>
+      </td>
+      <td class="text-base-content/60 text-xs tabular-nums whitespace-nowrap">${formatSize(d.size_kb)}</td>
+      <td class="text-base-content/60 text-xs tabular-nums whitespace-nowrap">${formatTime(d.last_sync || d.staged_at)}</td>
     </tr>`;
   }).join('');
 }
@@ -931,18 +599,21 @@ async function selectDoc(path) {
   renderDocuments();
 
   const name = (doc.path || '').split('/').pop();
-  document.getElementById('viewerTitle').textContent = name;
+  document.getElementById('viewerTitle').innerHTML = `<span>📄</span> ${escapeHtml(name)}`;
   document.getElementById('viewerActions').style.display = '';
 
   const content = document.getElementById('viewerContent');
-  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="spinner"></span></div>';
+  content.innerHTML = '<div class="flex items-center justify-center h-full"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
 
   try {
     const data = await api('api/document', { params: { path: path } });
     state.originalContent = data.content || '';
     renderMarkdown(state.originalContent);
   } catch (e) {
-    content.innerHTML = `<div class="viewer-empty"><div class="empty-icon">❌</div><span>加载失败: ${escapeHtml(e.message)}</span></div>`;
+    content.innerHTML = `<div class="flex flex-col items-center justify-center h-full gap-3 text-base-content/40">
+      <span class="text-5xl">❌</span>
+      <span class="text-sm">加载失败: ${escapeHtml(e.message)}</span>
+    </div>`;
   }
 }
 
@@ -952,7 +623,7 @@ function renderMarkdown(text) {
   postRenderLinks();
 }
 
-/* ===== Basic Markdown Renderer ===== */
+/* ===== Markdown Renderer ===== */
 function mdToHtml(md) {
   if (!md) return '';
   let html = escapeHtml(md);
@@ -968,7 +639,7 @@ function mdToHtml(md) {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img cursor-pointer text-primary underline" data-url="$2">[image: $1]</span>');
   html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
@@ -983,6 +654,15 @@ function postRenderLinks() {
   document.querySelectorAll('.md-link[data-href]').forEach(el => {
     el.setAttribute('href', el.getAttribute('data-href'));
     el.removeAttribute('data-href');
+  });
+  document.querySelectorAll('.md-img[data-url]').forEach(el => {
+    const url = el.getAttribute('data-url');
+    const alt = el.textContent.replace(/\[image: |\]/g, '');
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = alt;
+    img.className = 'max-w-full rounded-xl shadow-md my-3';
+    el.replaceWith(img);
   });
 }
 
@@ -1026,7 +706,7 @@ async function saveDoc() {
 async function syncFns() {
   const btn = document.getElementById('btnSyncFns');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 同步中...';
+  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
   try {
     const data = await api('api/sync/fns', { method: 'POST' });
     if (data.error) { toast('FNS 同步失败: ' + data.error, 'error'); return; }
@@ -1044,7 +724,7 @@ async function syncFns() {
 async function syncKb() {
   const btn = document.getElementById('btnSyncKb');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 同步中...';
+  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
   try {
     const data = await api('api/sync/kb', { method: 'POST' });
     if (data.error) { toast('知识库同步失败: ' + data.error, 'error'); return; }
@@ -1090,8 +770,7 @@ async function init() {
     bridge.onContext((ctx) => {
       if (ctx && ctx.isDark !== undefined) {
         document.documentElement.setAttribute('data-theme', ctx.isDark ? 'dark' : 'light');
-        const btn = document.getElementById('themeToggle');
-        if (btn) btn.textContent = ctx.isDark ? '☀️' : '🌙';
+        document.getElementById('themeToggle').checked = ctx.isDark;
       }
     });
   }
