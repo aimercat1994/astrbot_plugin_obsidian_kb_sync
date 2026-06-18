@@ -165,6 +165,14 @@ body {
 /* Children container with collapse animation */
 .tree-children.collapsed { display: none; }
 
+/* Toggle labels */
+.toggle-label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+}
+.toggle-label .toggle-text { opacity: 0.7; }
+.toggle-label:has(input:checked) .toggle-text { opacity: 1; font-weight: 500; }
+
 /* ===== Main Content ===== */
 .main-content {
   flex: 1; display: flex; flex-direction: column;
@@ -308,6 +316,11 @@ body {
       <div class="sidebar-search-wrap">
         <input type="search" placeholder="搜索文件..." id="searchInput" oninput="onSearch()">
       </div>
+      <div style="display:flex;gap:4px;padding:6px 0 2px;">
+        <button class="btn btn-xs btn-ghost border border-base-300 flex-1" onclick="batchSetSync(true)">全选同步</button>
+        <button class="btn btn-xs btn-ghost border border-base-300 flex-1" onclick="batchSetChunk(true)">全选切块</button>
+        <button class="btn btn-xs btn-ghost border border-base-300 flex-1" onclick="batchClear()">取消全选</button>
+      </div>
     </div>
     <div class="sidebar-tree" id="sidebarTree">
       <ul class="tree-list" id="treeRoot"></ul>
@@ -318,6 +331,16 @@ body {
   <div class="main-content">
     <div class="viewer-header">
       <span class="viewer-title" id="viewerTitle"><span>📄</span> 选择文档以预览</span>
+      <div style="display:flex;align-items:center;gap:12px;" id="docToggles">
+        <label class="toggle-label" id="toggleSyncWrap" style="display:none;">
+          <input type="checkbox" class="toggle toggle-xs toggle-success" id="toggleSync" onchange="onDocToggle('sync_to_kb', this.checked)">
+          <span class="toggle-text">同步</span>
+        </label>
+        <label class="toggle-label" id="toggleChunkWrap" style="display:none;">
+          <input type="checkbox" class="toggle toggle-xs toggle-primary" id="toggleChunk" onchange="onDocToggle('pre_chunk', this.checked)">
+          <span class="toggle-text">预切块</span>
+        </label>
+      </div>
       <div class="viewer-actions" id="viewerActions" style="display:none;">
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
         <button class="btn btn-xs btn-primary text-white" id="btnSave" onclick="saveDoc()" style="display:none;">💾 保存</button>
@@ -584,6 +607,74 @@ function onSearch() {
   renderTree();
 }
 
+/* ===== Doc Toggle ===== */
+async function onDocToggle(field, value) {
+  if (!state.currentDoc) return;
+  const doc = state.currentDoc;
+  const body = { path: doc.path };
+  body.sync_to_kb = field === 'sync_to_kb' ? value : !!doc.sync_to_kb;
+  body.pre_chunk = field === 'pre_chunk' ? value : (doc.pre_chunk !== false);
+  try {
+    await api('api/metadata', { method: 'POST', body: JSON.stringify(body) });
+    doc.sync_to_kb = body.sync_to_kb;
+    doc.pre_chunk = body.pre_chunk;
+    renderTree();
+    loadStatus();
+    toast(`${field === 'sync_to_kb' ? '同步' : '预切块'}已${value ? '开启' : '关闭'}`, 'success');
+  } catch (e) {
+    toast('更新失败: ' + e.message, 'error');
+    // Revert toggle
+    document.getElementById(field === 'sync_to_kb' ? 'toggleSync' : 'toggleChunk').checked = !value;
+  }
+}
+
+/* ===== Batch Operations ===== */
+async function batchSetSync(val) {
+  const docs = state.documents;
+  const paths = docs.map(d => d.path);
+  if (!paths.length) return;
+  try {
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: val } }) });
+    docs.forEach(d => d.sync_to_kb = val);
+    renderTree(); loadStatus();
+    if (state.currentDoc) {
+      document.getElementById('toggleSync').checked = !!state.currentDoc.sync_to_kb;
+    }
+    toast(`已批量${val ? '开启' : '关闭'}同步 (${paths.length} 篇)`, 'success');
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
+}
+
+async function batchSetChunk(val) {
+  const docs = state.documents;
+  const paths = docs.map(d => d.path);
+  if (!paths.length) return;
+  try {
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { pre_chunk: val } }) });
+    docs.forEach(d => d.pre_chunk = val);
+    renderTree(); loadStatus();
+    if (state.currentDoc) {
+      document.getElementById('toggleChunk').checked = state.currentDoc.pre_chunk !== false;
+    }
+    toast(`已批量${val ? '开启' : '关闭'}预切块 (${paths.length} 篇)`, 'success');
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
+}
+
+async function batchClear() {
+  const docs = state.documents;
+  const paths = docs.map(d => d.path);
+  if (!paths.length) return;
+  try {
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } }) });
+    docs.forEach(d => { d.sync_to_kb = false; d.pre_chunk = false; });
+    renderTree(); loadStatus();
+    if (state.currentDoc) {
+      document.getElementById('toggleSync').checked = false;
+      document.getElementById('toggleChunk').checked = false;
+    }
+    toast(`已取消全部选择 (${paths.length} 篇)`, 'success');
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
+}
+
 /* ===== Document Viewer ===== */
 async function selectDoc(path) {
   if (state.editing) { if (!confirm('正在编辑，放弃修改？')) return; state.editing = false; }
@@ -593,6 +684,12 @@ async function selectDoc(path) {
   renderTree();
   const name = (doc.path || '').split('/').pop();
   document.getElementById('viewerTitle').innerHTML = `<span>📄</span> ${esc(name)}`;
+  // Show toggles
+  document.getElementById('docToggles').style.display = 'flex';
+  document.getElementById('toggleSyncWrap').style.display = '';
+  document.getElementById('toggleChunkWrap').style.display = '';
+  document.getElementById('toggleSync').checked = !!doc.sync_to_kb;
+  document.getElementById('toggleChunk').checked = doc.pre_chunk !== false;
   document.getElementById('viewerActions').style.display = '';
   document.getElementById('viewerContent').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
   try {
