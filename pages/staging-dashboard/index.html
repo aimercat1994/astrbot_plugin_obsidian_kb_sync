@@ -576,8 +576,10 @@ function renderTree() {
 }
 
 function toggleFolder(path) {
-  if (state.expandedFolders.has(path)) state.expandedFolders.delete(path);
+  const had = state.expandedFolders.has(path);
+  if (had) state.expandedFolders.delete(path);
   else state.expandedFolders.add(path);
+  console.log('[toggle]', path, had ? 'collapse' : 'expand', '→', state.expandedFolders.has(path));
   renderTree();
 }
 
