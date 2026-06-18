@@ -281,6 +281,18 @@ class StagingManager:
             logger.error(f"Staging: 保存文档失败 {path}: {e}")
             return False
 
+    def delete_document(self, path: str) -> bool:
+        """删除暂存文档及其元数据。"""
+        fp = self._doc_path(path)
+        try:
+            if fp.exists():
+                fp.unlink()
+            self._metadata.pop(path, None)
+            return True
+        except Exception as e:
+            logger.error(f"Staging: 删除文档失败 {path}: {e}")
+            return False
+
     def get_metadata(self, path: str) -> Optional[dict]:
         """获取文档元数据。"""
         return self._metadata.get(path)
@@ -859,6 +871,68 @@ class Dashboard:
             if ok:
                 await self.staging.save_metadata()
             return jsonify({"success": ok})
+
+        @app.route("/api/document/create", methods=["POST"])
+        async def api_create_document():
+            data = await request.get_json()
+            folder = data.get("folder", "")
+            name = data.get("name", "")
+            if not name:
+                return jsonify({"error": "name required"}), 400
+            if not name.endswith(".md"):
+                name += ".md"
+            path = f"{folder}/{name}" if folder else name
+            # Check if already exists
+            if self.staging.get_document(path) is not None:
+                return jsonify({"error": "文件已存在"}), 409
+            ok = self.staging.save_document(path, f"# {name.replace('.md', '')}\n\n")
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok, "path": path})
+
+        @app.route("/api/document/delete", methods=["POST"])
+        async def api_delete_document():
+            data = await request.get_json()
+            path = data.get("path", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            ok = self.staging.delete_document(path)
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok})
+
+        @app.route("/api/document/import", methods=["POST"])
+        async def api_import_document():
+            files = await request.files
+            if "file" not in files:
+                return jsonify({"error": "no file"}), 400
+            f = files["file"]
+            folder = (await request.form).get("folder", "")
+            name = f.filename
+            if not name:
+                return jsonify({"error": "no filename"}), 400
+            if not name.endswith(".md"):
+                name += ".md"
+            path = f"{folder}/{name}" if folder else name
+            content = f.read().decode("utf-8", errors="replace")
+            ok = self.staging.save_document(path, content)
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok, "path": path})
+
+        @app.route("/api/document/export")
+        async def api_export_document():
+            path = request.args.get("path", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            content = self.staging.get_document(path)
+            if content is None:
+                return jsonify({"error": "not found"}), 404
+            filename = path.split("/")[-1]
+            return content, 200, {
+                "Content-Type": "text/markdown; charset=utf-8",
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
 
         @app.route("/api/metadata", methods=["POST"])
         async def api_update_metadata():

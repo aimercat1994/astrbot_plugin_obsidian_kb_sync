@@ -338,6 +338,9 @@ body {
   <span class="status-badge" id="kbStatus"><span class="dot" id="kbDot"></span>知识库</span>
   <div class="topbar-spacer"></div>
   <div class="topbar-actions">
+    <button class="btn btn-sm btn-ghost border border-base-300" onclick="openNewDocDialog()" title="新建文档">📄 新建</button>
+    <button class="btn btn-sm btn-ghost border border-base-300" onclick="importDoc()" title="导入文档">📂 导入</button>
+    <input type="file" id="importFileInput" accept=".md,.txt,.markdown" style="display:none;" onchange="handleImportFile(event)">
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
@@ -387,6 +390,8 @@ body {
         </label>
       </div>
       <div class="viewer-actions" id="viewerActions" style="display:none;">
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="exportDoc()" title="导出">📥 导出</button>
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="confirmDeleteDoc()" title="删除">🗑️ 删除</button>
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
         <button class="btn btn-xs btn-primary text-white" id="btnSave" onclick="saveDoc()" style="display:none;">💾 保存</button>
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none;">取消</button>
@@ -431,6 +436,46 @@ body {
   <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-base-300);">
     <button class="btn btn-sm btn-ghost" onclick="document.getElementById('settingsModal').close()">取消</button>
     <button class="btn btn-sm btn-primary text-white" onclick="saveSettings()">💾 保存</button>
+  </div>
+</dialog>
+
+<!-- New Document Dialog -->
+<dialog id="newDocModal" style="border:none;border-radius:12px;padding:0;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:var(--color-base-100);color:var(--color-base-content);margin:auto;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--color-base-300);">
+    <span style="font-size:1rem;font-weight:700;">📄 新建文档</span>
+    <button class="btn btn-xs btn-ghost btn-circle" onclick="document.getElementById('newDocModal').close()">✕</button>
+  </div>
+  <div style="padding:16px 20px;">
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:4px;">文件夹</label>
+      <select id="newDocFolder" class="select select-sm select-bordered w-full" style="font-size:0.82rem;">
+        <option value="">根目录</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:4px;">文件名</label>
+      <input type="text" id="newDocName" class="input input-sm input-bordered w-full" placeholder="例如：我的笔记" style="font-size:0.82rem;">
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-base-300);">
+    <button class="btn btn-sm btn-ghost" onclick="document.getElementById('newDocModal').close()">取消</button>
+    <button class="btn btn-sm btn-primary text-white" onclick="createDoc()">✨ 创建</button>
+  </div>
+</dialog>
+
+<!-- Delete Confirm Dialog -->
+<dialog id="deleteConfirmModal" style="border:none;border-radius:12px;padding:0;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:var(--color-base-100);color:var(--color-base-content);margin:auto;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--color-base-300);">
+    <span style="font-size:1rem;font-weight:700;">⚠️ 确认删除</span>
+    <button class="btn btn-xs btn-ghost btn-circle" onclick="document.getElementById('deleteConfirmModal').close()">✕</button>
+  </div>
+  <div style="padding:16px 20px;">
+    <p style="font-size:0.9rem;">确定要删除文档吗？此操作不可撤销。</p>
+    <p style="font-size:0.82rem;opacity:0.7;margin-top:8px;" id="deleteDocName"></p>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-base-300);">
+    <button class="btn btn-sm btn-ghost" onclick="document.getElementById('deleteConfirmModal').close()">取消</button>
+    <button class="btn btn-sm btn-error text-white" onclick="deleteDoc()">🗑️ 删除</button>
   </div>
 </dialog>
 
@@ -882,6 +927,107 @@ async function saveDoc() {
     document.getElementById('btnCancel').style.display = 'none';
     toast('文档已保存', 'success');
   } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+}
+
+/* ===== New Document ===== */
+function openNewDocDialog() {
+  const sel = document.getElementById('newDocFolder');
+  sel.innerHTML = '<option value="">根目录</option>';
+  // Collect all folders from tree
+  function addFolders(node, prefix) {
+    for (const [name, val] of Object.entries(node)) {
+      if (name === '__files__') continue;
+      const fullPath = prefix ? `${prefix}/${name}` : name;
+      sel.innerHTML += `<option value="${esc(fullPath)}">${esc(fullPath)}</option>`;
+      if (typeof val === 'object' && val !== null) addFolders(val, fullPath);
+    }
+  }
+  addFolders(state.folderTree, '');
+  document.getElementById('newDocName').value = '';
+  document.getElementById('newDocModal').showModal();
+}
+
+async function createDoc() {
+  const folder = document.getElementById('newDocFolder').value;
+  const name = document.getElementById('newDocName').value.trim();
+  if (!name) { toast('请输入文件名', 'warning'); return; }
+  try {
+    const data = await api('api/document/create', { method: 'POST', body: JSON.stringify({ folder, name }) });
+    if (data.error) { toast(data.error, 'error'); return; }
+    document.getElementById('newDocModal').close();
+    toast('文档已创建', 'success');
+    await loadFolders();
+    await loadDocuments();
+    renderTree();
+    // Select the new doc
+    if (data.path) selectDoc(data.path);
+  } catch (e) { toast('创建失败: ' + e.message, 'error'); }
+}
+
+/* ===== Delete Document ===== */
+function confirmDeleteDoc() {
+  if (!state.currentDoc) return;
+  document.getElementById('deleteDocName').textContent = state.currentDoc.path;
+  document.getElementById('deleteConfirmModal').showModal();
+}
+
+async function deleteDoc() {
+  if (!state.currentDoc) return;
+  const path = state.currentDoc.path;
+  try {
+    const data = await api('api/document/delete', { method: 'POST', body: JSON.stringify({ path }) });
+    if (data.error) { toast(data.error, 'error'); return; }
+    document.getElementById('deleteConfirmModal').close();
+    state.currentDoc = null;
+    state.originalContent = '';
+    document.getElementById('viewerTitle').innerHTML = '<span>📄</span> 选择文档以预览';
+    document.getElementById('docToggles').style.display = 'none';
+    document.getElementById('viewerActions').style.display = 'none';
+    document.getElementById('viewerContent').innerHTML = '<div class="empty-state"><span style="font-size:3rem;">👀</span><span style="font-size:0.85rem;">点击左侧文档查看内容</span></div>';
+    document.getElementById('tocPanel').classList.remove('visible');
+    toast('文档已删除', 'success');
+    await loadFolders();
+    await loadDocuments();
+    renderTree();
+  } catch (e) { toast('删除失败: ' + e.message, 'error'); }
+}
+
+/* ===== Import Document ===== */
+function importDoc() {
+  document.getElementById('importFileInput').click();
+}
+
+async function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('folder', state.currentDoc?.path?.split('/').slice(0, -1).join('/') || '');
+  try {
+    const resp = await fetch('api/document/import', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (data.error) { toast(data.error, 'error'); return; }
+    toast('导入成功', 'success');
+    await loadFolders();
+    await loadDocuments();
+    renderTree();
+    if (data.path) selectDoc(data.path);
+  } catch (e) { toast('导入失败: ' + e.message, 'error'); }
+  // Reset input
+  event.target.value = '';
+}
+
+/* ===== Export Document ===== */
+function exportDoc() {
+  if (!state.currentDoc) return;
+  const path = state.currentDoc.path;
+  const a = document.createElement('a');
+  a.href = `api/document/export?path=${encodeURIComponent(path)}`;
+  a.download = path.split('/').pop();
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  toast('导出中...', 'info');
 }
 
 /* ===== Sync ===== */
