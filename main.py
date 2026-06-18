@@ -1039,6 +1039,8 @@ class ObsidianKBStagingPlugin(Star):
             (f"{plugin_prefix}/api/sync/fns",      "webui_api_sync_fns",     ["POST"]),
             (f"{plugin_prefix}/api/sync/kb",       "webui_api_sync_kb",      ["POST"]),
             (f"{plugin_prefix}/api/status",        "webui_api_status",       ["GET"]),
+            (f"{plugin_prefix}/api/config",        "webui_api_config",       ["GET"]),
+            (f"{plugin_prefix}/api/config/save",   "webui_api_config_save",  ["POST"]),
         ]
         for path, handler_name, methods in routes:
             handler = getattr(self, handler_name)
@@ -1130,6 +1132,70 @@ class ObsidianKBStagingPlugin(Star):
         stats["last_fns_sync"] = self._last_fns_sync
         stats["last_kb_sync"] = self._last_kb_sync
         return jsonify(stats)
+
+    # ── Config Schema（用于前端展示） ─────────────────────
+    _CONFIG_SCHEMA = {
+        "fns_url": {"desc": "FNS 服务地址", "type": "string", "hint": "例如 http://192.168.1.10:9002", "secret": False},
+        "fns_token": {"desc": "FNS Token", "type": "string", "hint": "登录 Token（JWT）", "secret": True},
+        "fns_vault": {"desc": "Vault 名称", "type": "string", "hint": "FNS 中的 Vault 名称", "secret": False},
+        "kb_id": {"desc": "知识库 ID", "type": "string", "hint": "留空则自动创建", "secret": False},
+        "kb_name": {"desc": "知识库名称", "type": "string", "hint": "自动创建时使用", "secret": False},
+        "auto_sync": {"desc": "自动同步", "type": "bool", "hint": "开启定时自动同步", "secret": False},
+        "sync_interval": {"desc": "同步间隔（秒）", "type": "int", "hint": "自动同步间隔", "secret": False},
+        "exclude_patterns": {"desc": "排除模式", "type": "list", "hint": "glob 模式，逗号分隔", "secret": False},
+        "restore_deleted": {"desc": "自动恢复删除", "type": "bool", "hint": "检测知识库中被删除的文档并重新上传", "secret": False},
+        "max_file_size": {"desc": "最大文件（KB）", "type": "int", "hint": "0=不限制", "secret": False},
+        "concurrent_fetches": {"desc": "并发获取数", "type": "int", "hint": "建议 3-10", "secret": False},
+        "retry_count": {"desc": "重试次数", "type": "int", "hint": "API 失败重试", "secret": False},
+        "verify_interval": {"desc": "校验间隔（次）", "type": "int", "hint": "0=关闭", "secret": False},
+        "chunk_size": {"desc": "分块大小", "type": "int", "hint": "字符数，需与知识库一致", "secret": False},
+        "chunk_overlap": {"desc": "分块重叠", "type": "int", "hint": "字符数，需与知识库一致", "secret": False},
+        "dashboard_port": {"desc": "Dashboard 端口", "type": "int", "hint": "默认 6190", "secret": False},
+    }
+
+    async def webui_api_config(self, **kwargs):
+        from quart import jsonify
+        schema = self._CONFIG_SCHEMA
+        result = {}
+        for key, meta in schema.items():
+            val = self.config.get(key, "")
+            result[key] = {
+                "value": val,
+                "desc": meta["desc"],
+                "type": meta["type"],
+                "hint": meta["hint"],
+                "secret": meta["secret"],
+            }
+        return jsonify(result)
+
+    async def webui_api_config_save(self, **kwargs):
+        from quart import jsonify, request
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "无效的请求数据"}), 400
+        schema = self._CONFIG_SCHEMA
+        saved = []
+        for key, value in data.items():
+            if key not in schema:
+                continue
+            meta = schema[key]
+            # 类型转换
+            if meta["type"] == "int":
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    return jsonify({"error": f"{meta['desc']} 必须是整数"}), 400
+            elif meta["type"] == "bool":
+                value = bool(value)
+            elif meta["type"] == "list":
+                if isinstance(value, str):
+                    value = [v.strip() for v in value.split(",") if v.strip()]
+            self.config[key] = value
+            saved.append(key)
+        if saved:
+            self.config.save_config()
+            logger.info(f"配置已保存: {saved}")
+        return jsonify({"saved": saved})
 
     def _make_fns_client(self) -> FNSClient:
         """创建 FNSClient 实例。"""

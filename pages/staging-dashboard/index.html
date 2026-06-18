@@ -296,6 +296,7 @@ body {
   <div class="topbar-actions">
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
     <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg" title="切换主题">
       <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
       <span class="swap-on">☀️</span><span class="swap-off">🌙</span>
@@ -367,6 +368,21 @@ body {
   <span class="sep">|</span>
   <span id="statLastSync">上次同步: --</span>
 </footer>
+
+<!-- Settings Modal -->
+<dialog id="settingsModal" style="border:none;border-radius:12px;padding:0;max-width:560px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:var(--color-base-100);color:var(--color-base-content);">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--color-base-300);">
+    <span style="font-size:1rem;font-weight:700;">⚙️ 插件设置</span>
+    <button class="btn btn-xs btn-ghost btn-circle" onclick="document.getElementById('settingsModal').close()">✕</button>
+  </div>
+  <div style="padding:16px 20px;max-height:60vh;overflow-y:auto;" id="settingsBody">
+    <div style="text-align:center;padding:20px;opacity:0.5;">加载中...</div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-base-300);">
+    <button class="btn btn-sm btn-ghost" onclick="document.getElementById('settingsModal').close()">取消</button>
+    <button class="btn btn-sm btn-primary text-white" onclick="saveSettings()">💾 保存</button>
+  </div>
+</dialog>
 
 <!-- Toast -->
 <div class="toast-wrap" id="toastContainer"></div>
@@ -805,6 +821,67 @@ async function syncKb() {
 
 /* ===== Utilities ===== */
 function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
+
+/* ===== Settings ===== */
+async function openSettings() {
+  const modal = document.getElementById('settingsModal');
+  const body = document.getElementById('settingsBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+  modal.showModal();
+  try {
+    const data = await api('api/config');
+    let html = '<form id="settingsForm" style="display:flex;flex-direction:column;gap:14px;">';
+    for (const [key, meta] of Object.entries(data)) {
+      const id = `cfg_${key}`;
+      const hint = meta.hint ? `<div style="font-size:0.72rem;opacity:0.5;margin-top:2px;">${esc(meta.hint)}</div>` : '';
+      if (meta.type === 'bool') {
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;">
+          <div><label for="${id}" style="font-size:0.85rem;font-weight:500;">${esc(meta.desc)}</label>${hint}</div>
+          <input type="checkbox" class="toggle toggle-xs toggle-primary" id="${id}" data-key="${key}" ${meta.value ? 'checked' : ''}>
+        </div>`;
+      } else if (meta.type === 'list') {
+        const val = Array.isArray(meta.value) ? meta.value.join(', ') : meta.value;
+        html += `<div>
+          <label for="${id}" style="font-size:0.85rem;font-weight:500;">${esc(meta.desc)}</label>${hint}
+          <input type="text" id="${id}" data-key="${key}" value="${esc(val)}" style="margin-top:4px;width:100%;padding:6px 10px;font-size:0.82rem;border:1px solid var(--color-base-300);border-radius:6px;background:var(--color-base-200);color:var(--color-base-content);outline:none;">
+        </div>`;
+      } else {
+        const inputType = meta.type === 'int' ? 'number' : (meta.secret ? 'password' : 'text');
+        html += `<div>
+          <label for="${id}" style="font-size:0.85rem;font-weight:500;">${esc(meta.desc)}</label>${hint}
+          <input type="${inputType}" id="${id}" data-key="${key}" value="${esc(String(meta.value ?? ''))}" style="margin-top:4px;width:100%;padding:6px 10px;font-size:0.82rem;border:1px solid var(--color-base-300);border-radius:6px;background:var(--color-base-200);color:var(--color-base-content);outline:none;" ${meta.type === 'int' ? 'step="1"' : ''}>
+        </div>`;
+      }
+    }
+    html += '</form>';
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div style="text-align:center;padding:20px;color:var(--color-error);">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+async function saveSettings() {
+  const form = document.getElementById('settingsForm');
+  if (!form) return;
+  const payload = {};
+  form.querySelectorAll('[data-key]').forEach(el => {
+    const key = el.dataset.key;
+    if (el.type === 'checkbox') {
+      payload[key] = el.checked;
+    } else if (el.type === 'number') {
+      payload[key] = el.value === '' ? 0 : parseInt(el.value, 10);
+    } else {
+      payload[key] = el.value;
+    }
+  });
+  try {
+    const result = await api('api/config/save', { method: 'POST', body: JSON.stringify(payload) });
+    document.getElementById('settingsModal').close();
+    toast(`配置已保存 (${result.saved?.length || 0} 项)`, 'success');
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
 
 /* ===== Init ===== */
 async function init() {
