@@ -503,17 +503,16 @@ function _buildTree(node, prefix, depth) {
     html += `<li>
       <div class="tree-folder" style="padding-left:${8 + indent}px"
            onclick="toggleFolder('${esc(fullPath)}')">
-        <span class="chevron ${hasSubfolders ? (isExpanded ? 'open' : '') : 'leaf'}">▶</span>
+        <span class="chevron ${isExpanded ? 'open' : ''}">▶</span>
         <span class="icon">${isExpanded ? '📂' : '📁'}</span>
         <span class="name" title="${esc(fullPath)}">${esc(name)}</span>
         <span class="badge">${fileCount}</span>
       </div>`;
 
-    // Children container: files + subfolders, all inside one <ul>
-    if (hasSubfolders || hasFiles) {
-      const showContent = hasSubfolders ? isExpanded : true; // leaf folders always show files
-      html += `<ul class="tree-children ${showContent ? '' : 'collapsed'}"
-                   style="${showContent ? '' : 'max-height:0'}">`;
+    // Children container: files + subfolders
+    const showContent = isExpanded;
+    html += `<ul class="tree-children ${showContent ? '' : 'collapsed'}"
+                 style="${showContent ? '' : 'max-height:0'}">`;
 
       // Files first
       if (hasFiles) {
@@ -540,7 +539,6 @@ function _buildTree(node, prefix, depth) {
       }
 
       html += '</ul>';
-    }
 
     html += '</li>';
   }
