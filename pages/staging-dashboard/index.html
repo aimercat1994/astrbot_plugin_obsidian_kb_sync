@@ -1,502 +1,213 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Obsidian 暂存区 - AstrBot Plugin</title>
+<title>Obsidian 暂存区</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 <style>
-:root {
-  --primary: #4A90D9;
-  --primary-hover: #357ABD;
-  --primary-light: rgba(74,144,217,0.12);
-  --success: #52C41A;
-  --success-light: rgba(82,196,26,0.12);
-  --warning: #FAAD14;
-  --warning-light: rgba(250,173,20,0.12);
-  --error: #FF4D4F;
-  --error-light: rgba(255,77,79,0.12);
-  --bg: #f5f7fa;
-  --bg-card: #ffffff;
-  --bg-sidebar: #ffffff;
-  --bg-topbar: #ffffff;
-  --bg-bottombar: #ffffff;
-  --border: #e8ecf1;
-  --text: #1a1a2e;
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
-  --shadow: 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --radius: 8px;
-  --radius-sm: 4px;
-  --transition: 0.2s ease;
-  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --sidebar-width: 250px;
-}
+/* ===== Layout: full-height app shell ===== */
+html, body { height: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column; margin: 0; }
 
-[data-theme="dark"] {
-  --bg: #1a1a2e;
-  --bg-card: #16213e;
-  --bg-sidebar: #16213e;
-  --bg-topbar: #16213e;
-  --bg-bottombar: #16213e;
-  --border: #2a2a4a;
-  --text: #e0e0e0;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  --shadow: 0 1px 3px rgba(0,0,0,0.2);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --primary-light: rgba(74,144,217,0.2);
-  --success-light: rgba(82,196,26,0.2);
-  --warning-light: rgba(250,173,20,0.2);
-  --error-light: rgba(255,77,79,0.2);
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: background var(--transition), color var(--transition);
-}
-
-/* ===== Top Bar ===== */
+/* Top bar */
 .topbar {
-  height: 52px;
-  background: var(--bg-topbar);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 12px;
-  box-shadow: var(--shadow);
-  z-index: 100;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 var(--pico-spacing); height: 52px;
+  border-bottom: 1px solid var(--pico-muted-border-color);
   flex-shrink: 0;
 }
+.topbar-title { font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.topbar-spacer { flex: 1; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
 
-.topbar-title {
-  font-size: 16px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
+/* Status indicators */
+.status-indicators { display: flex; gap: 12px; }
+.status-dot { display: flex; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--pico-muted-color); }
+.status-dot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pico-muted-border-color); }
+.status-dot.connected .dot { background: var(--pico-color-ins); }
+.status-dot.disconnected .dot { background: var(--pico-del-color); }
 
-.topbar-title .icon { font-size: 20px; }
-
-.status-indicators {
-  display: flex;
-  gap: 10px;
-  margin-left: 8px;
-}
-
-.status-dot {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  padding: 3px 10px;
-  border-radius: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  transition: all var(--transition);
-}
-
-.status-dot .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: background var(--transition);
-}
-
-.status-dot.connected .dot { background: var(--success); }
-.status-dot.disconnected .dot { background: var(--error); }
-
-.topbar-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition);
-  white-space: nowrap;
-  font-family: inherit;
-}
-
-.btn:hover { border-color: var(--primary); color: var(--primary); }
-
-.btn-primary {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
-}
-.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
-
-.btn-success {
-  background: var(--success);
-  color: #fff;
-  border-color: var(--success);
-}
-.btn-success:hover { background: #45a817; border-color: #45a817; color: #fff; }
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.theme-toggle {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  cursor: pointer;
-  font-size: 16px;
-  transition: all var(--transition);
-}
-.theme-toggle:hover { border-color: var(--primary); }
-
-/* ===== Main Layout ===== */
+/* Main area: sidebar + content */
 .main-wrapper {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
+  flex: 1; display: flex; overflow: hidden; min-height: 0;
 }
 
-/* ===== Sidebar ===== */
+/* Sidebar */
 .sidebar {
-  width: var(--sidebar-width);
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
+  width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--pico-muted-border-color);
   overflow: hidden;
-  flex-shrink: 0;
-  transition: background var(--transition);
 }
-
 .sidebar-header {
-  padding: 12px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  padding: 10px var(--pico-spacing); font-weight: 600; font-size: 0.9rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
 }
+.sidebar-content { flex: 1; overflow-y: auto; padding: 6px 0; }
 
-.sidebar-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-
-.sidebar-content::-webkit-scrollbar { width: 4px; }
-.sidebar-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
+/* Folder items */
 .folder-item {
-  display: flex;
-  align-items: center;
-  padding: 7px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all var(--transition);
-  gap: 8px;
-  color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; cursor: pointer; font-size: 0.85rem;
+  border-radius: var(--pico-border-radius); margin: 1px 6px;
+  transition: background 0.15s;
+}
+.folder-item:hover { background: var(--pico-card-background-color); }
+.folder-item.active { background: var(--pico-primary-focus); color: var(--pico-primary-inverse); }
+.folder-count {
+  margin-left: auto; font-size: 0.75rem; opacity: 0.6;
+  background: var(--pico-muted-border-color); padding: 1px 6px; border-radius: 10px;
 }
 
-.folder-item:hover { background: var(--primary-light); }
-.folder-item.active { background: var(--primary-light); color: var(--primary); font-weight: 500; }
-
-.folder-item .folder-icon { font-size: 15px; flex-shrink: 0; }
-.folder-item .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.folder-item .folder-count {
-  font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg);
-  padding: 1px 6px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-/* ===== Content Area ===== */
+/* Content area */
 .content-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
 }
 
+/* Toolbar */
 .content-toolbar {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  gap: 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px var(--pico-spacing);
+  border-bottom: 1px solid var(--pico-muted-border-color);
   flex-shrink: 0;
 }
+.content-toolbar input[type="search"] { margin: 0; flex: 1; max-width: 300px; }
+.batch-actions { display: flex; gap: 4px; }
 
-.search-input {
-  flex: 1;
-  max-width: 280px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-  transition: border-color var(--transition);
-  font-family: inherit;
-}
-.search-input:focus { border-color: var(--primary); }
-.search-input::placeholder { color: var(--text-muted); }
+/* Split view: doc list + viewer */
+.split-view { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 
-.batch-actions {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-/* ===== Split View ===== */
-.split-view {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
+/* Document list panel */
 .doc-list-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-  min-width: 0;
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+  border-right: 1px solid var(--pico-muted-border-color);
 }
-
-.doc-table-wrapper {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: auto;
-}
-
-.doc-table-wrapper::-webkit-scrollbar { width: 5px; height: 5px; }
-.doc-table-wrapper::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-.doc-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.doc-table thead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--bg-card);
-}
-
+.doc-table-wrapper { flex: 1; overflow: auto; }
+.doc-table { width: 100%; font-size: 0.82rem; margin: 0; }
+.doc-table thead { position: sticky; top: 0; z-index: 10; background: var(--pico-background-color); }
 .doc-table th {
-  text-align: left;
-  padding: 8px 10px;
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  transition: color var(--transition);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  font-size: 0.78rem; padding: 8px 10px;
+}
+.doc-table th:hover { color: var(--pico-primary); }
+.doc-table th.cb-col { cursor: default; text-align: center; width: 36px; }
+.doc-table th.sort-asc::after { content: ' ▲'; font-size: 0.7rem; color: var(--pico-primary); }
+.doc-table th.sort-desc::after { content: ' ▼'; font-size: 0.7rem; color: var(--pico-primary); }
+.doc-table td { padding: 5px 10px; vertical-align: middle; }
+.doc-table tbody tr { cursor: pointer; }
+.doc-table tbody tr:hover { background: var(--pico-primary-focus); }
+.doc-table tbody tr.selected { background: var(--pico-primary-focus); }
+.doc-table input[type="checkbox"] { margin: 0; cursor: pointer; }
+.doc-name { display: flex; align-items: center; gap: 6px; }
+.doc-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.doc-status-dot.synced { background: var(--pico-color-ins); }
+.doc-status-dot.selected { background: var(--pico-color-del); }
+.doc-status-dot.none { background: var(--pico-muted-border-color); }
+.doc-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-size, .doc-date { white-space: nowrap; opacity: 0.7; font-size: 0.78rem; }
+.doc-list-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; opacity: 0.5;
 }
 
-.doc-table th:hover { color: var(--primary); }
-.doc-table th.sort-asc::after { content: ' ▲'; font-size: 10px; color: var(--primary); }
-.doc-table th.sort-desc::after { content: ' ▼'; font-size: 10px; color: var(--primary); }
-
-.doc-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-.doc-table tr {
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.doc-table tbody tr:hover { background: var(--primary-light); }
-.doc-table tbody tr.selected { background: var(--primary-light); }
-
-.doc-table .cb-cell {
-  text-align: center;
-  width: 36px;
-}
-
-.doc-table input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-  accent-color: var(--primary);
-}
-
-.doc-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.doc-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+/* Viewer panel */
+.viewer-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.viewer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--pico-muted-border-color);
   flex-shrink: 0;
 }
-
-.doc-status-dot.synced { background: var(--success); }
-.doc-status-dot.selected { background: var(--warning); }
-.doc-status-dot.none { background: var(--text-muted); }
-
-.doc-name-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.doc-size { color: var(--text-secondary); white-space: nowrap; }
-.doc-date { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
-
-.doc-list-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 14px;
-  gap: 8px;
-}
-
-.doc-list-empty .empty-icon { font-size: 36px; opacity: 0.4; }
-
-/* ===== Viewer Panel ===== */
-.viewer-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
-  background: var(--bg-card);
-}
-
-.viewer-header {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
-}
-
-.viewer-title {
-  font-size: 13px;
-  font-weight: 500;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-}
-
-.viewer-actions {
-  display: flex;
-  gap: 6px;
-}
-
+.viewer-title { font-weight: 600; font-size: 0.9rem; }
+.viewer-actions { display: flex; gap: 6px; }
 .viewer-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px;
+  flex: 1; overflow-y: auto; padding: 16px;
 }
 
-.viewer-content::-webkit-scrollbar { width: 5px; }
-.viewer-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+/* Markdown rendered content */
+.md-render { font-size: 0.9rem; line-height: 1.7; }
+.md-render h1 { font-size: 1.5rem; margin: 1rem 0 0.5rem; }
+.md-render h2 { font-size: 1.3rem; margin: 1rem 0 0.5rem; }
+.md-render h3 { font-size: 1.1rem; margin: 0.8rem 0 0.4rem; }
+.md-render pre { background: var(--pico-card-background-color); padding: 12px; border-radius: var(--pico-border-radius); overflow-x: auto; font-size: 0.82rem; }
+.md-render code { font-size: 0.85em; }
+.md-render blockquote { border-left: 3px solid var(--pico-primary); padding-left: 12px; opacity: 0.85; }
+.md-render img { max-width: 100%; border-radius: var(--pico-border-radius); }
+.md-render ul, .md-render ol { padding-left: 1.5rem; }
+.md-render hr { border: none; border-top: 1px solid var(--pico-muted-border-color); margin: 1rem 0; }
 
+/* Editor textarea */
+.editor-textarea {
+  width: 100%; height: 100%; resize: none; font-family: var(--pico-font-family-monospace);
+  font-size: 0.85rem; line-height: 1.6; border: none; outline: none;
+  background: var(--pico-background-color); color: var(--pico-color); padding: 12px;
+}
+
+/* Viewer empty state */
 .viewer-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-muted);
-  font-size: 14px;
-  gap: 8px;
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; opacity: 0.5;
+}
+.empty-icon { font-size: 2.5rem; }
+
+/* Bottom bar */
+.bottombar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px var(--pico-spacing); height: 36px;
+  border-top: 1px solid var(--pico-muted-border-color);
+  font-size: 0.78rem; color: var(--pico-muted-color);
+  flex-shrink: 0;
+}
+.bottombar .sep { opacity: 0.3; }
+
+/* Spinner */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--pico-muted-border-color);
+  border-top-color: var(--pico-primary);
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toast */
+.toast-container {
+  position: fixed; top: 60px; right: 16px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  padding: 10px 16px; border-radius: var(--pico-border-radius);
+  font-size: 0.85rem; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slide-in 0.3s ease;
+}
+.toast.info { background: var(--pico-primary); }
+.toast.success { background: #16a34a; }
+.toast.error { background: #dc2626; }
+.toast.warning { background: #d97706; }
+.toast.fade-out { opacity: 0; transition: opacity 0.3s; }
+@keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* Theme toggle button */
+.theme-toggle {
+  background: none; border: none; cursor: pointer; font-size: 1.2rem;
+  padding: 4px; border-radius: 4px; line-height: 1;
+}
+.theme-toggle:hover { background: var(--pico-muted-border-color); }
+
+/* Small buttons */
+button.sm { padding: 4px 10px; font-size: 0.8rem; }
+
+/* Buttons group inside Pico */
+.topbar-actions button, .batch-actions button, .viewer-actions button {
+  margin: 0; padding: 6px 12px; font-size: 0.82rem;
+}
+.topbar-actions button[disabled], .viewer-actions button[disabled] {
+  opacity: 0.6; cursor: not-allowed;
 }
 
-.viewer-empty .empty-icon { font-size: 36px; opacity: 0.4; }
-
-/* Markdown Render */
-.md-render { line-height: 1.7; font-size: 14px; }
-.md-render h1 { font-size: 1.6em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-.md-render h2 { font-size: 1.4em; margin: 0.7em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-.md-render h3 { font-size: 1.2em; margin: 0.6em 0 0.3em; }
-.md-render h4 { font-size: 1.05em; margin: 0.5em 0 0.2em; }
-.md-render p { margin: 0.5em 0; }
-.md-render strong { font-weight: 600; }
-.md-render em { font-style: italic; }
-.md-render a { color: var(--primary); text-decoration: none; }
-.md-render a:hover { text-decoration: underline; }
-.md-render ul, .md-render ol { padding-left: 1.8em; margin: 0.4em 0; }
-.md-render li { margin: 0.2em 0; }
-.md-render code {
-  font-family: var(--font-mono);
-  background: var(--bg);
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-size: 0.9em;
-}
-.md-render pre {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  overflow-x: auto;
-  margin: 0.6em 0;
-}
-.md-render pre code {
-  background: none;
-  padding: 0;
-  font-size: 0.85em;
-  line-height: 1.5;
+/* Responsive: collapse sidebar on narrow screens */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .split-view { flex-direction: column; }
+  .doc-list-panel { border-right: none; border-bottom: 1px solid var(--pico-muted-border-color); max-height: 40vh; }
 }
 </style>
 </head>
@@ -504,28 +215,20 @@ body {
 
 <!-- Top Bar -->
 <header class="topbar">
-  <div class="topbar-title">
-    <span class="icon">📚</span>
-    Obsidian 暂存区
-  </div>
+  <div class="topbar-title">📚 Obsidian 暂存区</div>
   <div class="status-indicators">
-    <div class="status-dot" id="fnsStatus">
-      <span class="dot"></span>
-      <span>FNS</span>
-    </div>
-    <div class="status-dot" id="kbStatus">
-      <span class="dot"></span>
-      <span>知识库</span>
-    </div>
+    <div class="status-dot" id="fnsStatus"><span class="dot"></span><span>FNS</span></div>
+    <div class="status-dot" id="kbStatus"><span class="dot"></span><span>知识库</span></div>
   </div>
+  <div class="topbar-spacer"></div>
   <div class="topbar-actions">
-    <button class="btn" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
-    <button class="btn btn-success" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <button id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
+    <button id="btnSyncKb" onclick="syncKb()" style="background:#16a34a;color:#fff;border-color:#16a34a;">📤 同步到知识库</button>
     <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
   </div>
 </header>
 
-<!-- Main Wrapper -->
+<!-- Main -->
 <div class="main-wrapper">
 
   <!-- Sidebar -->
@@ -534,28 +237,26 @@ body {
     <div class="sidebar-content" id="folderList"></div>
   </aside>
 
-  <!-- Content Area -->
+  <!-- Content -->
   <main class="content-area">
-    <!-- Toolbar -->
     <div class="content-toolbar">
-      <input type="text" class="search-input" id="searchInput" placeholder="🔍 搜索文件名..." oninput="onSearch()">
+      <input type="search" id="searchInput" placeholder="🔍 搜索文件名..." oninput="onSearch()">
       <div class="batch-actions">
-        <button class="btn btn-sm" onclick="batchSetSync(true)">全选同步</button>
-        <button class="btn btn-sm" onclick="batchSetChunk(true)">全选预切块</button>
-        <button class="btn btn-sm" onclick="batchClear()">取消全选</button>
+        <button class="sm" onclick="batchSetSync(true)">全选同步</button>
+        <button class="sm" onclick="batchSetChunk(true)">全选预切块</button>
+        <button class="sm" onclick="batchClear()">取消全选</button>
       </div>
     </div>
 
-    <!-- Split View -->
     <div class="split-view">
-      <!-- Document List -->
+      <!-- Doc list -->
       <div class="doc-list-panel" id="docListPanel">
         <div class="doc-table-wrapper" id="docTableWrapper">
           <table class="doc-table" id="docTable">
             <thead>
               <tr>
-                <th class="cb-cell" style="cursor:default">同步</th>
-                <th class="cb-cell" style="cursor:default">切块</th>
+                <th class="cb-col">同步</th>
+                <th class="cb-col">切块</th>
                 <th onclick="sortBy('name')" data-sort="name">文件名</th>
                 <th onclick="sortBy('size_kb')" data-sort="size_kb">大小</th>
                 <th onclick="sortBy('last_sync')" data-sort="last_sync">最后同步</th>
@@ -570,14 +271,14 @@ body {
         </div>
       </div>
 
-      <!-- Viewer Panel -->
+      <!-- Viewer -->
       <div class="viewer-panel" id="viewerPanel">
         <div class="viewer-header">
           <span class="viewer-title" id="viewerTitle">选择文档以预览</span>
           <div class="viewer-actions" id="viewerActions" style="display:none">
-            <button class="btn btn-sm" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
-            <button class="btn btn-sm btn-primary" id="btnSave" onclick="saveDoc()" style="display:none">💾 保存</button>
-            <button class="btn btn-sm" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
+            <button class="sm" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
+            <button class="sm" id="btnSave" onclick="saveDoc()" style="display:none;background:var(--pico-primary);color:#fff;">💾 保存</button>
+            <button class="sm" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
           </div>
         </div>
         <div class="viewer-content" id="viewerContent">
@@ -605,9 +306,6 @@ body {
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- Debug Panel (visible on page) -->
-<div id="debugPanel" style="position:fixed;bottom:40px;left:0;right:0;max-height:150px;overflow-y:auto;background:#1a1a2e;color:#0f0;font:11px monospace;padding:8px;z-index:99999;border-top:2px solid #f00;display:none;"></div>
-
 <!-- Bridge SDK: explicit reference so AstrBot rewrites it with asset_token -->
 <script src="/api/plugin/page/bridge-sdk.js"></script>
 
@@ -627,20 +325,6 @@ let state = {
   lastKbSync: null,
 };
 
-/* ===== Debug Logger ===== */
-function debug(msg, type) {
-  const panel = document.getElementById('debugPanel');
-  if (!panel) return;
-  panel.style.display = 'block';
-  const line = document.createElement('div');
-  line.style.color = type === 'error' ? '#f85149' : type === 'warn' ? '#d29922' : '#7ee787';
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  panel.appendChild(line);
-  panel.scrollTop = panel.scrollHeight;
-  if (type === 'error') console.error('[DEBUG]', msg);
-  else console.log('[DEBUG]', msg);
-}
-
 /* ===== Bridge / API Helpers ===== */
 const bridge = window.AstrBotPluginPage;
 
@@ -649,14 +333,9 @@ function isBridge() {
 }
 
 async function api(path, opts = {}) {
-  // path: full API path like "/api/folders", "/api/status", etc.
   const method = (opts.method || 'GET').toUpperCase();
-
   if (isBridge()) {
-    // Bridge mode: strip leading "/api/" — bridge auto-prepends /api/plug/<plugin_name>/
-    // So "/api/status" → "api/status" → parent builds /api/plug/<name>/api/status
     const endpoint = path.replace(/^\//, '');
-    console.log('[Bridge API]', method, endpoint);
     try {
       let result;
       if (method === 'GET') {
@@ -667,21 +346,22 @@ async function api(path, opts = {}) {
           : {};
         result = await bridge.apiPost(endpoint, body);
       }
-      console.log('[Bridge API]', endpoint, '→', typeof result, result === null ? 'null' : typeof result === 'object' ? Object.keys(result).slice(0, 5) : result);
       return result;
-    } catch (err) {
-      console.error('[Bridge API Error]', endpoint, err);
-      throw err;
+    } catch (e) {
+      throw new Error(e.message || 'Bridge API error');
     }
   } else {
-    // Direct fetch mode (standalone Quart on :6190)
     let url = path;
     if (opts.params && Object.keys(opts.params).length > 0) {
-      const qs = Object.entries(opts.params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+      const qs = Object.entries(opts.params)
+        .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+        .join('&');
       url += (url.includes('?') ? '&' : '?') + qs;
     }
-    const defaults = { headers: { 'Content-Type': 'application/json' } };
-    const res = await fetch(url, { ...defaults, ...opts });
+    const fetchOpts = { headers: {'Content-Type': 'application/json'} };
+    if (opts.method) fetchOpts.method = opts.method;
+    if (opts.body) fetchOpts.body = opts.body;
+    const res = await fetch(url, fetchOpts);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
@@ -689,7 +369,6 @@ async function api(path, opts = {}) {
 
 /* ===== Theme ===== */
 function initTheme() {
-  // In bridge mode, theme is managed by parent via data-theme attribute
   if (isBridge()) {
     const ctx = bridge.getContext();
     if (ctx && ctx.isDark !== undefined) {
@@ -697,10 +376,8 @@ function initTheme() {
       const btn = document.querySelector('.theme-toggle');
       if (btn) btn.textContent = ctx.isDark ? '☀️' : '🌙';
     }
-    // Don't fall through to localStorage - it's not available in sandboxed iframes
     return;
   }
-  // Standalone mode: use localStorage (only when not sandboxed)
   try {
     const saved = localStorage.getItem('staging-theme');
     if (saved === 'dark') {
@@ -708,15 +385,13 @@ function initTheme() {
       const btn = document.querySelector('.theme-toggle');
       if (btn) btn.textContent = '☀️';
     }
-  } catch (e) {
-    // localStorage not available (sandboxed iframe without allow-same-origin)
-  }
+  } catch (e) {}
 }
 
 function toggleTheme() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   if (isDark) {
-    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'light');
     document.querySelector('.theme-toggle').textContent = '🌙';
     try { localStorage.setItem('staging-theme', 'light'); } catch (e) {}
   } else {
@@ -743,15 +418,11 @@ function toast(msg, type = 'info') {
 async function loadStatus() {
   try {
     const s = await api('api/status');
-    debug('status: ' + JSON.stringify(s).substring(0, 100));
-    // Backend returns: total_documents, selected_for_sync, synced_to_kb, pre_chunked, total_size_kb
     document.getElementById('statusTotal').textContent = `共 ${s.total_documents ?? 0} 篇`;
     document.getElementById('statusSelected').textContent = `已选 ${s.selected_for_sync ?? 0} 篇`;
     document.getElementById('statusSynced').textContent = `已同步 ${s.synced_to_kb ?? 0} 篇`;
     const lastSync = state.lastFnsSync ? formatTime(state.lastFnsSync) : '--';
     document.getElementById('statusLastSync').textContent = `上次同步: ${lastSync}`;
-
-    // Connection indicators
     const fnsEl = document.getElementById('fnsStatus');
     const kbEl = document.getElementById('kbStatus');
     fnsEl.className = `status-dot ${state.lastFnsSync ? 'connected' : 'disconnected'}`;
@@ -779,18 +450,13 @@ function formatSize(kb) {
 /* ===== Folders ===== */
 async function loadFolders() {
   try {
-    debug('loadFolders() calling api...');
-    // Backend returns tree object directly (not wrapped in {folders: ...})
     const tree = await api('api/folders');
-    debug('loadFolders() got: ' + typeof tree + ', keys=' + (tree ? Object.keys(tree).slice(0,5) : 'null'));
-    // Convert tree to flat folder list with counts
     const folders = [];
     function walk(node, prefix) {
       for (const [name, child] of Object.entries(node)) {
         if (name === '__files__') continue;
         const fullPath = prefix ? `${prefix}/${name}` : name;
         const fileCount = (child.__files__ || []).length;
-        // Count files in subfolders too
         let totalCount = fileCount;
         for (const [subName, subChild] of Object.entries(child)) {
           if (subName === '__files__') continue;
@@ -805,30 +471,23 @@ async function loadFolders() {
     renderFolders();
   } catch (e) {
     console.error('Folders load failed:', e);
-    debug('loadFolders error: ' + (e.message || e), 'error');
-    toast('加载文件夹失败: ' + (e.message || JSON.stringify(e) || 'unknown'), 'error');
+    toast('加载文件夹失败: ' + (e.message || 'unknown'), 'error');
   }
 }
 
 function renderFolders() {
   const container = document.getElementById('folderList');
   const totalCount = state.folders.reduce((s, f) => s + (f.count || 0), 0);
-
   let html = `<div class="folder-item ${state.currentFolder === null ? 'active' : ''}" onclick="selectFolder(null)">
-    <span class="folder-icon">📋</span>
-    <span class="folder-name">全部</span>
-    <span class="folder-count">${totalCount}</span>
+    <span>📋</span><span>全部</span><span class="folder-count">${totalCount}</span>
   </div>`;
-
   state.folders.forEach(f => {
     const isActive = state.currentFolder === f.path;
     html += `<div class="folder-item ${isActive ? 'active' : ''}" onclick="selectFolder('${escapeAttr(f.path)}')">
-      <span class="folder-icon">📂</span>
-      <span class="folder-name" title="${escapeAttr(f.path)}">${escapeHtml(f.name)}</span>
+      <span>📂</span><span title="${escapeAttr(f.path)}">${escapeHtml(f.name)}</span>
       <span class="folder-count">${f.count || 0}</span>
     </div>`;
   });
-
   container.innerHTML = html;
 }
 
@@ -842,25 +501,18 @@ function selectFolder(path) {
 async function loadDocuments() {
   try {
     const params = {};
-    if (state.currentFolder) {
-      params.folder = state.currentFolder;
-    }
-    debug('loadDocuments() calling api/documents' + (params.folder ? '?folder=' + params.folder : ''));
-    // Backend returns list directly (not wrapped in {documents: ...})
+    if (state.currentFolder) params.folder = state.currentFolder;
     const data = await api('api/documents', { params });
-    debug('loadDocuments() got: ' + typeof data + ', isArray=' + Array.isArray(data) + ', len=' + (Array.isArray(data) ? data.length : Object.keys(data||{}).length));
     state.documents = Array.isArray(data) ? data : (data.documents || []);
     renderDocuments();
   } catch (e) {
     console.error('Documents load failed:', e);
-    debug('loadDocuments error: ' + (e.message || e), 'error');
-    toast('加载文档列表失败: ' + (e.message || JSON.stringify(e) || 'unknown'), 'error');
+    toast('加载文档列表失败: ' + (e.message || 'unknown'), 'error');
   }
 }
 
 function getFilteredDocs() {
   let docs = [...state.documents];
-
   if (state.searchQuery) {
     const q = state.searchQuery.toLowerCase();
     docs = docs.filter(d => {
@@ -868,20 +520,16 @@ function getFilteredDocs() {
       return name.toLowerCase().includes(q) || (d.path || '').toLowerCase().includes(q);
     });
   }
-
   const field = state.sortField;
   const asc = state.sortAsc ? 1 : -1;
   docs.sort((a, b) => {
     let va = field === 'name' ? (a.path || '').split('/').pop() : a[field];
     let vb = field === 'name' ? (b.path || '').split('/').pop() : b[field];
-    if (field === 'name') {
-      return asc * String(va).localeCompare(String(vb));
-    }
+    if (field === 'name') return asc * String(va).localeCompare(String(vb));
     if (va == null) return 1;
     if (vb == null) return -1;
     return asc * (va - vb);
   });
-
   return docs;
 }
 
@@ -891,12 +539,9 @@ function renderDocuments() {
   const empty = document.getElementById('docListEmpty');
   const table = document.getElementById('docTable');
 
-  // Update sort indicators
   document.querySelectorAll('.doc-table th[data-sort]').forEach(th => {
     th.classList.remove('sort-asc', 'sort-desc');
-    if (th.dataset.sort === state.sortField) {
-      th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
-    }
+    if (th.dataset.sort === state.sortField) th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
   });
 
   if (docs.length === 0) {
@@ -905,7 +550,6 @@ function renderDocuments() {
     empty.style.display = '';
     return;
   }
-
   table.style.display = '';
   empty.style.display = 'none';
 
@@ -914,8 +558,8 @@ function renderDocuments() {
     const statusClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
     const isActive = state.currentDoc && state.currentDoc.path === d.path;
     return `<tr class="${isActive ? 'selected' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
-      <td class="cb-cell"><input type="checkbox" ${d.sync_to_kb ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)"></td>
-      <td class="cb-cell"><input type="checkbox" ${d.pre_chunk !== false ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
+      <td style="text-align:center"><input type="checkbox" ${d.sync_to_kb ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)"></td>
+      <td style="text-align:center"><input type="checkbox" ${d.pre_chunk !== false ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
       <td><div class="doc-name"><span class="doc-status-dot ${statusClass}"></span><span class="doc-name-text" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span></div></td>
       <td class="doc-size">${formatSize(d.size_kb)}</td>
       <td class="doc-date">${formatTime(d.last_sync || d.staged_at)}</td>
@@ -924,12 +568,8 @@ function renderDocuments() {
 }
 
 function sortBy(field) {
-  if (state.sortField === field) {
-    state.sortAsc = !state.sortAsc;
-  } else {
-    state.sortField = field;
-    state.sortAsc = true;
-  }
+  if (state.sortField === field) { state.sortAsc = !state.sortAsc; }
+  else { state.sortField = field; state.sortAsc = true; }
   renderDocuments();
 }
 
@@ -943,17 +583,10 @@ async function toggleMeta(path, field, value) {
   try {
     const doc = state.documents.find(d => d.path === path);
     if (!doc) return;
-
     const body = { path };
     body.sync_to_kb = field === 'sync_to_kb' ? value : doc.sync_to_kb;
     body.pre_chunk = field === 'pre_chunk' ? value : (doc.pre_chunk !== false);
-
-    await api('api/metadata', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
-
-    // Update local state
+    await api('api/metadata', { method: 'POST', body: JSON.stringify(body) });
     doc.sync_to_kb = body.sync_to_kb;
     doc.pre_chunk = body.pre_chunk;
     renderDocuments();
@@ -961,7 +594,7 @@ async function toggleMeta(path, field, value) {
     toast(`${field === 'sync_to_kb' ? '同步' : '预切块'}已${value ? '开启' : '关闭'}`, 'success');
   } catch (e) {
     toast('更新元数据失败: ' + e.message, 'error');
-    loadDocuments(); // revert
+    loadDocuments();
   }
 }
 
@@ -971,17 +604,11 @@ async function batchSetSync(val) {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('api/metadata/batch', {
-      method: 'POST',
-      body: JSON.stringify({ paths, updates: { sync_to_kb: val } })
-    });
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: val } }) });
     docs.forEach(d => d.sync_to_kb = val);
-    renderDocuments();
-    loadStatus();
+    renderDocuments(); loadStatus();
     toast(`已批量${val ? '开启' : '关闭'}同步 (${paths.length} 篇)`, 'success');
-  } catch (e) {
-    toast('批量操作失败: ' + e.message, 'error');
-  }
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
 }
 
 async function batchSetChunk(val) {
@@ -989,17 +616,11 @@ async function batchSetChunk(val) {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('api/metadata/batch', {
-      method: 'POST',
-      body: JSON.stringify({ paths, updates: { pre_chunk: val } })
-    });
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { pre_chunk: val } }) });
     docs.forEach(d => d.pre_chunk = val);
-    renderDocuments();
-    loadStatus();
+    renderDocuments(); loadStatus();
     toast(`已批量${val ? '开启' : '关闭'}预切块 (${paths.length} 篇)`, 'success');
-  } catch (e) {
-    toast('批量操作失败: ' + e.message, 'error');
-  }
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
 }
 
 async function batchClear() {
@@ -1007,17 +628,11 @@ async function batchClear() {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('api/metadata/batch', {
-      method: 'POST',
-      body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } })
-    });
+    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } }) });
     docs.forEach(d => { d.sync_to_kb = false; d.pre_chunk = false; });
-    renderDocuments();
-    loadStatus();
+    renderDocuments(); loadStatus();
     toast(`已取消全部选择 (${paths.length} 篇)`, 'success');
-  } catch (e) {
-    toast('批量操作失败: ' + e.message, 'error');
-  }
+  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
 }
 
 /* ===== Document Viewer ===== */
@@ -1026,10 +641,8 @@ async function selectDoc(path) {
     if (!confirm('当前正在编辑，是否放弃修改？')) return;
     state.editing = false;
   }
-
   const doc = state.documents.find(d => d.path === path);
   if (!doc) return;
-
   state.currentDoc = doc;
   renderDocuments();
 
@@ -1038,10 +651,9 @@ async function selectDoc(path) {
   document.getElementById('viewerActions').style.display = '';
 
   const content = document.getElementById('viewerContent');
-  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="spinner spinner-dark"></span></div>';
+  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="spinner"></span></div>';
 
   try {
-    // Backend returns {path, content}
     const data = await api('api/document', { params: { path: path } });
     state.originalContent = data.content || '';
     renderMarkdown(state.originalContent);
@@ -1060,59 +672,31 @@ function renderMarkdown(text) {
 function mdToHtml(md) {
   if (!md) return '';
   let html = escapeHtml(md);
-
-  // Code blocks
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="lang-${lang}">${code}</code></pre>`;
-  });
-
-  // Inline code
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code class="lang-${lang}">${code}</code></pre>`);
   html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-
-  // Headings
   html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-  // Horizontal rule
   html = html.replace(/^---+$/gm, '<hr>');
-
-  // Blockquote
   html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-
-  // Bold and italic
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-  // Links - use data-href to avoid AstrBot HTML rewriting
+  // Links: data-href to avoid AstrBot HTML rewriting
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
-
-  // Images - use data-src to avoid AstrBot HTML rewriting corrupting JS
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-alt="$1" data-url="$2">[image: $1]</span>');
-
-  // Unordered lists
+  // Images: data-url to avoid AstrBot HTML rewriting
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
   html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-
-  // Ordered lists
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-
-  // Paragraphs - convert double newlines
   html = html.replace(/\n\n+/g, '</p><p>');
   html = html.replace(/\n/g, '<br>');
-
-  // Wrap in paragraph if not already
   if (!html.startsWith('<')) html = '<p>' + html + '</p>';
-
-  // Clean up empty paragraphs
   html = html.replace(/<p>\s*<\/p>/g, '');
-
   return html;
 }
 
-/* Post-render: convert data-href/data-src to real attributes after HTML is inserted */
 function postRenderLinks() {
   document.querySelectorAll('.md-link[data-href]').forEach(el => {
     el.setAttribute('href', el.getAttribute('data-href'));
@@ -1141,13 +725,9 @@ function cancelEdit() {
 async function saveDoc() {
   const textarea = document.getElementById('editorArea');
   if (!textarea) return;
-
   const newContent = textarea.value;
   try {
-    await api('api/document', {
-      method: 'POST',
-      body: JSON.stringify({ path: state.currentDoc.path, content: newContent })
-    });
+    await api('api/document', { method: 'POST', body: JSON.stringify({ path: state.currentDoc.path, content: newContent }) });
     state.originalContent = newContent;
     state.editing = false;
     renderMarkdown(newContent);
@@ -1167,10 +747,7 @@ async function syncFns() {
   btn.innerHTML = '<span class="spinner"></span> 同步中...';
   try {
     const data = await api('api/sync/fns', { method: 'POST' });
-    if (data.error) {
-      toast('FNS 同步失败: ' + data.error, 'error');
-      return;
-    }
+    if (data.error) { toast('FNS 同步失败: ' + data.error, 'error'); return; }
     state.lastFnsSync = Date.now() / 1000;
     toast(`FNS 同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}, 未变 ${data.unchanged || 0}`, 'success');
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
@@ -1188,10 +765,7 @@ async function syncKb() {
   btn.innerHTML = '<span class="spinner"></span> 同步中...';
   try {
     const data = await api('api/sync/kb', { method: 'POST' });
-    if (data.error) {
-      toast('知识库同步失败: ' + data.error, 'error');
-      return;
-    }
+    if (data.error) { toast('知识库同步失败: ' + data.error, 'error'); return; }
     state.lastKbSync = Date.now() / 1000;
     toast(`知识库同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}${data.errors ? `, 失败 ${data.errors} 篇` : ''}`, data.errors ? 'warning' : 'success');
     await loadStatus();
@@ -1207,45 +781,29 @@ async function syncKb() {
 /* ===== Utilities ===== */
 function escapeHtml(str) {
   if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function escapeAttr(str) {
   if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /* ===== Init ===== */
 async function init() {
-  debug('init() started, isBridge=' + isBridge());
-  // Wait for bridge to be ready (in bridge mode), with timeout fallback
   if (isBridge()) {
     try {
-      debug('Waiting for bridge.ready()...');
-      // Race between ready() and a 3s timeout
       await Promise.race([
         bridge.ready(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('bridge ready timeout')), 3000))
       ]);
-      debug('bridge.ready() resolved');
     } catch (e) {
-      debug('bridge.ready(): ' + e.message + ' - proceeding anyway', 'warn');
+      console.warn('bridge.ready():', e.message);
     }
   }
 
   initTheme();
-  debug('initTheme done');
 
-  // Listen for theme changes from parent (bridge mode)
   if (isBridge()) {
     bridge.onContext((ctx) => {
       if (ctx && ctx.isDark !== undefined) {
@@ -1256,35 +814,26 @@ async function init() {
     });
   }
 
-  debug('Loading folders, documents, status...');
   await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
-  debug('All data loaded');
-
-  // Auto-refresh status every 30s
   setInterval(loadStatus, 30000);
 }
 
-// Keyboard shortcut: Ctrl+S to save
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveDoc(); }
 });
 
 init().catch(e => {
   console.error('Init failed:', e);
-  debug('INIT FAILED: ' + (e.message || e), 'error');
   toast('初始化失败: ' + e.message, 'error');
 });
 
-// Global error handler - show errors as toast and debug panel
 window.onerror = function(msg, url, line, col, error) {
-  debug('JS Error: ' + msg + ' (line ' + line + ')', 'error');
-  toast(`JS Error: ${msg} (line ${line})`, 'error');
   console.error('Global error:', msg, url, line, col, error);
+  toast(`JS Error: ${msg} (line ${line})`, 'error');
 };
 window.addEventListener('unhandledrejection', function(e) {
-  debug('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
-  toast('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
   console.error('Unhandled rejection:', e.reason);
+  toast('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
 });
 </script>
 </body>
