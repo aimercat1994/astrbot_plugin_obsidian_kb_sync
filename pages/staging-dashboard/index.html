@@ -414,7 +414,7 @@ function toast(msg, type = 'info') {
   const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
   const el = document.createElement('div');
   el.className = `toast-item ${type}`;
-  el.innerHTML = `<span>${icons[type]||''}</span><span>${escapeHtml(msg)}</span>`;
+  el.innerHTML = `<span>${icons[type]||''}</span><span>${esc(msg)}</span>`;
   c.appendChild(el);
   setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); }, 3500);
 }
