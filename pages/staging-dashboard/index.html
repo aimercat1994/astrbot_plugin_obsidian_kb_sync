@@ -453,7 +453,6 @@ function fmtSize(kb) {
 async function loadFolders() {
   try {
     state.folderTree = await api('api/folders');
-    console.log('[DEBUG] folderTree:', JSON.stringify(state.folderTree).slice(0, 500));
     for (const key of Object.keys(state.folderTree)) {
       if (key !== '__files__') state.expandedFolders.add(key);
     }
@@ -463,11 +462,9 @@ async function loadFolders() {
 async function loadDocuments() {
   try {
     const data = await api('api/documents', { params: {} });
-    console.log('[DEBUG] documents raw:', JSON.stringify(data).slice(0, 500));
     state.documents = Array.isArray(data) ? data : (data.documents || []);
     state.docMap = {};
     state.documents.forEach(d => { state.docMap[d.path] = d; });
-    console.log('[DEBUG] docMap keys sample:', Object.keys(state.docMap).slice(0, 5));
   } catch (e) { console.error('Docs:', e); toast('加载文档失败', 'error'); }
 }
 
@@ -479,14 +476,16 @@ function countFiles(node) {
 }
 
 function _getFilesInNode(node) {
-  return (node.__files__ || []).map(p => state.docMap[p]).filter(Boolean);
+  return (node.__files__ || []).map(item => {
+    const p = typeof item === 'string' ? item : item.path;
+    return p ? state.docMap[p] : null;
+  }).filter(Boolean);
 }
 
 function _buildTree(node, prefix, depth) {
   let html = '';
   const indent = depth * 16;
   const q = state.searchQuery.toLowerCase();
-  if (depth === 0) console.log('[DEBUG] _buildTree root keys:', Object.keys(node), '__files__:', node.__files__);
 
   const folders = [];
   for (const [name, child] of Object.entries(node)) {
@@ -499,13 +498,6 @@ function _buildTree(node, prefix, depth) {
     const hasSubfolders = Object.keys(child).some(k => k !== '__files__');
     const isExpanded = state.expandedFolders.has(fullPath);
     const hasFiles = (child.__files__ || []).length > 0;
-
-    if (depth === 0 && hasFiles) {
-      console.log(`[DEBUG] folder "${name}" __files__:`, child.__files__);
-      const samplePath = child.__files__[0];
-      console.log(`[DEBUG] docMap has "${samplePath}":`, !!state.docMap[samplePath]);
-      console.log(`[DEBUG] docMap sample keys:`, Object.keys(state.docMap).slice(0, 3));
-    }
 
     // Folder row
     html += `<li>
@@ -582,13 +574,10 @@ function renderTree() {
 
   if (!state.folderTree || totalCount === 0) {
     root.innerHTML = '<li style="padding:20px;text-align:center;opacity:0.35;font-size:0.82rem;">暂无文档</li>';
-    console.log('[DEBUG] renderTree: empty — folderTree:', !!state.folderTree, 'totalCount:', totalCount);
     return;
   }
 
-  const html = _buildTree(state.folderTree, '', 0);
-  console.log('[DEBUG] renderTree html length:', html.length, 'sample:', html.slice(0, 300));
-  root.innerHTML = html;
+  root.innerHTML = _buildTree(state.folderTree, '', 0);
 }
 
 function toggleFolder(path) {
