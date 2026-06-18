@@ -256,14 +256,12 @@ body {
   pointer-events: auto;
   backdrop-filter: blur(8px); max-width: 380px;
   opacity: 1;
-  animation: toast-in 0.3s ease-out both;
 }
 .toast-item.info { background: linear-gradient(135deg, #6366f1, #818cf8); }
 .toast-item.success { background: linear-gradient(135deg, #16a34a, #22c55e); }
 .toast-item.error { background: linear-gradient(135deg, #dc2626, #ef4444); }
 .toast-item.warning { background: linear-gradient(135deg, #d97706, #f59e0b); }
-.toast-item.fade-out { opacity: 0; transform: translateX(20px); transition: all 0.3s; }
-@keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.toast-item.fade-out { opacity: 0; transition: opacity 0.3s; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
