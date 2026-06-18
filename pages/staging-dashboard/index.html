@@ -7,125 +7,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
 <style>
-/* ===== App Shell ===== */
 html, body { height: 100%; overflow: hidden; margin: 0; }
 body {
   display: flex; flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   background: var(--color-base-100); color: var(--color-base-content);
-}
-
-/* ===== Layout ===== */
-.app-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-
-/* ===== Sidebar ===== */
-.sidebar {
-  width: 300px; min-width: 260px; max-width: 420px;
-  display: flex; flex-direction: column;
-  background: var(--color-base-100);
-  border-right: 1px solid var(--color-base-300);
-  overflow: hidden; flex-shrink: 0;
-}
-.sidebar-section { display: flex; flex-direction: column; overflow: hidden; }
-.sidebar-section-header {
-  display: flex; align-items: center; gap: 6px;
-  padding: 10px 16px; font-size: 0.75rem; font-weight: 600;
-  color: var(--color-base-content);
-  opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--color-base-300);
-  cursor: pointer; user-select: none;
-}
-.sidebar-section-header:hover { opacity: 0.7; }
-.sidebar-section-body { flex: 1; overflow-y: auto; }
-
-/* ===== Folder Tree ===== */
-.folder-tree { list-style: none; margin: 0; padding: 4px 0; }
-.folder-tree ul { list-style: none; margin: 0; padding: 0; }
-.folder-node { position: relative; }
-.folder-row {
-  display: flex; align-items: center; gap: 4px;
-  padding: 5px 12px; cursor: pointer; font-size: 0.84rem;
-  border-radius: 6px; margin: 0 6px;
-  transition: background 0.15s;
-}
-.folder-row:hover { background: var(--color-base-200); }
-.folder-row.active {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary); font-weight: 600;
-}
-.folder-row .folder-toggle {
-  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-  font-size: 0.65rem; color: var(--color-base-content); opacity: 0.4;
-  transition: transform 0.2s; flex-shrink: 0;
-}
-.folder-row .folder-toggle.expanded { transform: rotate(90deg); }
-.folder-row .folder-toggle.no-children { visibility: hidden; }
-.folder-row .folder-icon { font-size: 0.9rem; flex-shrink: 0; }
-.folder-row .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-row .folder-count {
-  font-size: 0.7rem; opacity: 0.5;
-  background: var(--color-base-300); color: var(--color-base-content);
-  padding: 1px 6px; border-radius: 10px; min-width: 20px; text-align: center;
-  flex-shrink: 0;
-}
-.folder-row.active .folder-count {
-  background: var(--color-primary); color: var(--color-primary-content);
-  opacity: 1;
-}
-.folder-children {
-  overflow: hidden; transition: max-height 0.25s ease;
-}
-.folder-children.collapsed { max-height: 0 !important; }
-
-/* ===== Document List ===== */
-.doc-list { list-style: none; margin: 0; padding: 4px 0; }
-.doc-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 16px; cursor: pointer; font-size: 0.82rem;
-  transition: background 0.15s;
-  border-bottom: 1px solid var(--color-base-200);
-}
-.doc-item:last-child { border-bottom: none; }
-.doc-item:hover { background: var(--color-base-200); }
-.doc-item.active {
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  font-weight: 600;
-}
-.doc-item .doc-status {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-}
-.doc-item .doc-status.synced { background: var(--color-success); box-shadow: 0 0 5px var(--color-success); }
-.doc-item .doc-status.selected { background: var(--color-primary); }
-.doc-item .doc-status.none { background: var(--color-base-300); }
-.doc-item .doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doc-item .doc-meta { font-size: 0.72rem; opacity: 0.45; white-space: nowrap; flex-shrink: 0; }
-
-/* ===== Sidebar Search ===== */
-.sidebar-search {
-  padding: 8px 12px; border-bottom: 1px solid var(--color-base-300);
-}
-.sidebar-search input {
-  width: 100%; padding: 5px 10px 5px 30px;
-  font-size: 0.82rem; border-radius: 20px;
-  border: 1px solid var(--color-base-300);
-  background: var(--color-base-200);
-  color: var(--color-base-content);
-  outline: none; transition: border-color 0.2s;
-}
-.sidebar-search input:focus { border-color: var(--color-primary); }
-.sidebar-search-wrap {
-  position: relative;
-}
-.sidebar-search-wrap::before {
-  content: '🔍'; position: absolute; left: 9px; top: 50%;
-  transform: translateY(-50%); font-size: 0.75rem; pointer-events: none;
-}
-
-/* ===== Main Content ===== */
-.main-content {
-  flex: 1; display: flex; flex-direction: column;
-  overflow: hidden; min-width: 0;
-  background: var(--color-base-100);
 }
 
 /* ===== Top Bar ===== */
@@ -156,8 +42,7 @@ body {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 10px; border-radius: 20px;
   font-size: 0.73rem; font-weight: 500;
-  border: 1px solid var(--color-base-300);
-  transition: all 0.2s;
+  border: 1px solid var(--color-base-300); transition: all 0.2s;
 }
 .status-badge.connected {
   border-color: var(--color-success);
@@ -170,15 +55,125 @@ body {
   background: var(--color-base-300); transition: all 0.2s;
 }
 .status-badge.connected .dot {
-  background: var(--color-success);
-  box-shadow: 0 0 6px var(--color-success);
+  background: var(--color-success); box-shadow: 0 0 6px var(--color-success);
 }
 
-/* ===== Viewer ===== */
-.viewer {
-  flex: 1; display: flex; flex-direction: column;
-  overflow: hidden; min-height: 0;
+/* ===== App Shell ===== */
+.app-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* ===== Sidebar ===== */
+.sidebar {
+  width: 300px; min-width: 240px; max-width: 420px;
+  display: flex; flex-direction: column;
+  background: var(--color-base-100);
+  border-right: 1px solid var(--color-base-300);
+  overflow: hidden; flex-shrink: 0;
 }
+.sidebar-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; font-size: 0.78rem; font-weight: 600;
+  color: var(--color-base-content); opacity: 0.6;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--color-base-300);
+  flex-shrink: 0;
+}
+.sidebar-header .count { margin-left: auto; font-size: 0.7rem; opacity: 0.6; }
+
+/* Search */
+.sidebar-search {
+  padding: 8px 10px; border-bottom: 1px solid var(--color-base-300); flex-shrink: 0;
+}
+.sidebar-search-wrap { position: relative; }
+.sidebar-search-wrap::before {
+  content: '🔍'; position: absolute; left: 9px; top: 50%;
+  transform: translateY(-50%); font-size: 0.72rem; pointer-events: none;
+}
+.sidebar-search input {
+  width: 100%; padding: 5px 10px 5px 28px;
+  font-size: 0.8rem; border-radius: 20px;
+  border: 1px solid var(--color-base-300);
+  background: var(--color-base-200); color: var(--color-base-content);
+  outline: none; transition: border-color 0.2s;
+}
+.sidebar-search input:focus { border-color: var(--color-primary); }
+
+/* Tree body */
+.sidebar-tree {
+  flex: 1; overflow-y: auto; padding: 4px 0;
+}
+
+/* ===== Unified Tree ===== */
+.tree-list { list-style: none; margin: 0; padding: 0; }
+.tree-list ul { list-style: none; margin: 0; padding: 0; }
+
+/* Folder row */
+.tree-folder {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; cursor: pointer; font-size: 0.82rem;
+  border-radius: 5px; margin: 0 4px;
+  transition: background 0.12s; position: relative;
+}
+.tree-folder:hover { background: var(--color-base-200); }
+.tree-folder.active {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary); font-weight: 600;
+}
+.tree-folder .chevron {
+  width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; opacity: 0.35; flex-shrink: 0;
+  transition: transform 0.2s;
+}
+.tree-folder .chevron.open { transform: rotate(90deg); }
+.tree-folder .chevron.leaf { visibility: hidden; }
+.tree-folder .icon { font-size: 0.85rem; flex-shrink: 0; }
+.tree-folder .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-folder .badge {
+  font-size: 0.65rem; opacity: 0.4;
+  background: var(--color-base-300); color: var(--color-base-content);
+  padding: 0 5px; border-radius: 8px; line-height: 1.6;
+  flex-shrink: 0;
+}
+.tree-folder.active .badge {
+  background: var(--color-primary); color: var(--color-primary-content); opacity: 1;
+}
+
+/* File row */
+.tree-file {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px 3px 0; cursor: pointer; font-size: 0.8rem;
+  border-radius: 5px; margin: 0 4px;
+  transition: background 0.12s; color: var(--color-base-content);
+}
+.tree-file:hover { background: var(--color-base-200); }
+.tree-file.active {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+.tree-file .dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.tree-file .dot.synced { background: var(--color-success); box-shadow: 0 0 4px var(--color-success); }
+.tree-file .dot.selected { background: var(--color-primary); }
+.tree-file .dot.none { background: var(--color-base-300); }
+.tree-file .name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tree-file .size {
+  font-size: 0.68rem; opacity: 0.35; white-space: nowrap; flex-shrink: 0;
+}
+
+/* Children container with collapse animation */
+.tree-children { overflow: hidden; transition: max-height 0.25s ease; }
+.tree-children.collapsed { max-height: 0 !important; }
+
+/* ===== Main Content ===== */
+.main-content {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-width: 0;
+  background: var(--color-base-100);
+}
+
+/* Viewer */
 .viewer-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 20px; flex-shrink: 0;
@@ -191,7 +186,7 @@ body {
 .viewer-actions { display: flex; gap: 6px; }
 .viewer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
 
-/* ===== Markdown Render ===== */
+/* ===== Markdown ===== */
 .md-render { font-size: 0.9rem; line-height: 1.8; }
 .md-render h1 { font-size: 1.5rem; font-weight: 700; margin: 1.2rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent); }
 .md-render h2 { font-size: 1.3rem; font-weight: 700; margin: 1rem 0 0.4rem; color: var(--color-primary); }
@@ -247,7 +242,7 @@ body {
   font-size: 0.74rem; opacity: 0.5;
 }
 .bottombar .sep { opacity: 0.25; }
-.bottombar .highlight { color: var(--color-primary); font-weight: 600; opacity: 1; }
+.bottombar .hl { color: var(--color-primary); font-weight: 600; opacity: 1; }
 
 /* ===== Toast ===== */
 .toast-wrap {
@@ -269,29 +264,27 @@ body {
 .toast-item.fade-out { opacity: 0; transform: translateX(20px); transition: all 0.3s; }
 @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-/* ===== Scrollbar ===== */
+/* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-base-300); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-primary); }
 ::selection { background: color-mix(in srgb, var(--color-primary) 20%, transparent); }
 
-/* ===== Responsive ===== */
+/* Responsive */
 @media (max-width: 768px) {
-  .sidebar { width: 100%; max-width: none; border-right: none; }
+  .sidebar { width: 100%; max-width: none; }
   .main-content { display: none; }
 }
 </style>
 </head>
 <body>
 
-<!-- ===== Top Bar ===== -->
+<!-- Top Bar -->
 <header class="topbar">
   <div class="topbar-title"><span class="icon">📚</span> Obsidian 暂存区</div>
-  <div style="display:flex;gap:8px;">
-    <span class="status-badge" id="fnsStatus"><span class="dot" id="fnsDot"></span>FNS</span>
-    <span class="status-badge" id="kbStatus"><span class="dot" id="kbDot"></span>知识库</span>
-  </div>
+  <span class="status-badge" id="fnsStatus"><span class="dot" id="fnsDot"></span>FNS</span>
+  <span class="status-badge" id="kbStatus"><span class="dot" id="kbDot"></span>知识库</span>
   <div class="topbar-spacer"></div>
   <div class="topbar-actions">
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
@@ -303,50 +296,27 @@ body {
   </div>
 </header>
 
-<!-- ===== App Shell ===== -->
+<!-- App Shell -->
 <div class="app-shell">
 
   <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <!-- Folder Section -->
-    <div class="sidebar-section" style="flex:0 0 auto; max-height:50%; display:flex; flex-direction:column; overflow:hidden;">
-      <div class="sidebar-section-header" onclick="toggleSection('folder')">
-        <span id="folderChevron" style="transition:transform 0.2s;">▾</span>
-        📁 文件夹
-        <span style="margin-left:auto;font-size:0.7rem;opacity:0.5;" id="folderCount"></span>
-      </div>
-      <div class="sidebar-section-body" id="folderBody">
-        <ul class="folder-tree" id="folderTree"></ul>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      📁 资源管理器
+      <span class="count" id="totalCount"></span>
+    </div>
+    <div class="sidebar-search">
+      <div class="sidebar-search-wrap">
+        <input type="search" placeholder="搜索文件..." id="searchInput" oninput="onSearch()">
       </div>
     </div>
-
-    <!-- Divider -->
-    <div style="height:1px;background:var(--color-base-300);flex-shrink:0;"></div>
-
-    <!-- Doc List Section -->
-    <div class="sidebar-section" style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0;">
-      <div class="sidebar-section-header">
-        📄 文档列表
-        <span style="margin-left:auto;font-size:0.7rem;opacity:0.5;" id="docCount"></span>
-      </div>
-      <div class="sidebar-search">
-        <div class="sidebar-search-wrap">
-          <input type="search" placeholder="搜索文件名..." id="searchInput" oninput="onSearch()">
-        </div>
-      </div>
-      <div class="sidebar-section-body" id="docListBody">
-        <ul class="doc-list" id="docList"></ul>
-        <div class="empty-state" id="docListEmpty" style="display:none;">
-          <span style="font-size:2.5rem;">📄</span>
-          <span style="font-size:0.82rem;">暂无文档</span>
-        </div>
-      </div>
+    <div class="sidebar-tree" id="sidebarTree">
+      <ul class="tree-list" id="treeRoot"></ul>
     </div>
   </aside>
 
   <!-- Main Content -->
   <div class="main-content">
-    <!-- Viewer Header -->
     <div class="viewer-header">
       <span class="viewer-title" id="viewerTitle"><span>📄</span> 选择文档以预览</span>
       <div class="viewer-actions" id="viewerActions" style="display:none;">
@@ -355,7 +325,6 @@ body {
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none;">取消</button>
       </div>
     </div>
-    <!-- Viewer Body -->
     <div class="viewer-body" id="viewerContent">
       <div class="empty-state">
         <span style="font-size:3rem;">👀</span>
@@ -366,13 +335,13 @@ body {
 
 </div>
 
-<!-- ===== Bottom Bar ===== -->
+<!-- Bottom Bar -->
 <footer class="bottombar">
-  <span>共 <span class="highlight" id="statTotal">0</span> 篇</span>
+  <span>共 <span class="hl" id="statTotal">0</span> 篇</span>
   <span class="sep">|</span>
-  <span>已选 <span class="highlight" id="statSelected">0</span> 篇</span>
+  <span>已选 <span class="hl" id="statSelected">0</span> 篇</span>
   <span class="sep">|</span>
-  <span>已同步 <span class="highlight" id="statSynced">0</span> 篇</span>
+  <span>已同步 <span class="hl" id="statSynced">0</span> 篇</span>
   <span class="sep">|</span>
   <span id="statLastSync">上次同步: --</span>
 </footer>
@@ -388,7 +357,6 @@ body {
 let state = {
   folderTree: null,
   documents: [],
-  currentFolder: null,
   currentDoc: null,
   editing: false,
   originalContent: '',
@@ -396,6 +364,7 @@ let state = {
   lastFnsSync: null,
   lastKbSync: null,
   expandedFolders: new Set(),
+  docMap: {},  // path -> doc object
 };
 
 /* ===== Bridge / API ===== */
@@ -442,12 +411,12 @@ function toggleTheme() {
 
 /* ===== Toast ===== */
 function toast(msg, type = 'info') {
-  const container = document.getElementById('toastContainer');
+  const c = document.getElementById('toastContainer');
   const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
   const el = document.createElement('div');
   el.className = `toast-item ${type}`;
-  el.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(msg)}</span>`;
-  container.appendChild(el);
+  el.innerHTML = `<span>${icons[type]||''}</span><span>${escapeHtml(msg)}</span>`;
+  c.appendChild(el);
   setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); }, 3500);
 }
 
@@ -458,226 +427,221 @@ async function loadStatus() {
     document.getElementById('statTotal').textContent = s.total_documents ?? 0;
     document.getElementById('statSelected').textContent = s.selected_for_sync ?? 0;
     document.getElementById('statSynced').textContent = s.synced_to_kb ?? 0;
-    document.getElementById('statLastSync').textContent = `上次同步: ${state.lastFnsSync ? formatTime(state.lastFnsSync) : '--'}`;
-    updateBadge('fnsStatus', 'fnsDot', !!state.lastFnsSync);
-    updateBadge('kbStatus', 'kbDot', !!state.lastKbSync);
-  } catch (e) { console.error('Status load failed:', e); }
+    document.getElementById('statLastSync').textContent = `上次同步: ${state.lastFnsSync ? fmtTime(state.lastFnsSync) : '--'}`;
+    updateBadge('fnsStatus', !!state.lastFnsSync);
+    updateBadge('kbStatus', !!state.lastKbSync);
+  } catch (e) { console.error('Status:', e); }
 }
-function updateBadge(badgeId, dotId, ok) {
-  const badge = document.getElementById(badgeId);
-  badge.className = 'status-badge ' + (ok ? 'connected' : 'disconnected');
+function updateBadge(id, ok) {
+  document.getElementById(id).className = 'status-badge ' + (ok ? 'connected' : 'disconnected');
 }
-function formatTime(ts) {
+function fmtTime(ts) {
   if (!ts) return '--';
   const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return '--';
-  const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (isNaN(d)) return '--';
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-function formatSize(kb) {
-  if (kb == null) return '--';
-  if (kb < 1) return `${(kb * 1024).toFixed(0)} B`;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
+function fmtSize(kb) {
+  if (kb == null) return '';
+  if (kb < 1) return `${(kb*1024).toFixed(0)}B`;
+  if (kb < 1024) return `${kb.toFixed(1)}K`;
+  return `${(kb/1024).toFixed(1)}M`;
 }
 
-/* ===== Folders ===== */
+/* ===== Data Loading ===== */
 async function loadFolders() {
   try {
-    const tree = await api('api/folders');
-    state.folderTree = tree;
-    // Auto-expand root level
-    for (const key of Object.keys(tree)) {
+    state.folderTree = await api('api/folders');
+    // Auto-expand all root folders
+    for (const key of Object.keys(state.folderTree)) {
       if (key !== '__files__') state.expandedFolders.add(key);
     }
-    renderFolders();
-  } catch (e) { console.error('Folders load failed:', e); toast('加载文件夹失败', 'error'); }
+  } catch (e) { console.error('Folders:', e); toast('加载文件夹失败', 'error'); }
 }
 
-function _countFiles(node) {
-  let count = (node.__files__ || []).length;
-  for (const [k, v] of Object.entries(node)) { if (k !== '__files__') count += _countFiles(v); }
-  return count;
+async function loadDocuments() {
+  try {
+    const data = await api('api/documents', { params: {} });
+    state.documents = Array.isArray(data) ? data : (data.documents || []);
+    state.docMap = {};
+    state.documents.forEach(d => { state.docMap[d.path] = d; });
+  } catch (e) { console.error('Docs:', e); toast('加载文档失败', 'error'); }
 }
 
-function _renderFolderTree(node, prefix, depth) {
+/* ===== Unified Tree Rendering ===== */
+function countFiles(node) {
+  let n = (node.__files__ || []).length;
+  for (const [k, v] of Object.entries(node)) { if (k !== '__files__') n += countFiles(v); }
+  return n;
+}
+
+function _getFilesInNode(node) {
+  return (node.__files__ || []).map(p => state.docMap[p]).filter(Boolean);
+}
+
+function _buildTree(node, prefix, depth) {
   let html = '';
+
+  // Render child folders
   for (const [name, child] of Object.entries(node)) {
     if (name === '__files__') continue;
     const fullPath = prefix ? `${prefix}/${name}` : name;
-    const count = _countFiles(child);
-    const hasChildren = Object.keys(child).some(k => k !== '__files__');
+    const fileCount = countFiles(child);
+    const hasSubfolders = Object.keys(child).some(k => k !== '__files__');
+    const hasFiles = (child.__files__ || []).length > 0;
+    const isLeaf = !hasSubfolders;
     const isExpanded = state.expandedFolders.has(fullPath);
-    const isActive = state.currentFolder === fullPath;
-    const indent = depth * 14;
-    html += `<li class="folder-node">
-      <div class="folder-row ${isActive ? 'active' : ''}" style="padding-left:${10 + indent}px"
-           onclick="selectFolder('${escapeAttr(fullPath)}')">
-        <span class="folder-toggle ${hasChildren ? (isExpanded ? 'expanded' : '') : 'no-children'}"
-              onclick="event.stopPropagation(); toggleFolder('${escapeAttr(fullPath)}')">▶</span>
-        <span class="folder-icon">${hasChildren ? (isExpanded ? '📂' : '📁') : '📄'}</span>
-        <span class="folder-name" title="${escapeAttr(fullPath)}">${escapeHtml(name)}</span>
-        <span class="folder-count">${count}</span>
+    const indent = depth * 16;
+
+    html += `<li>
+      <div class="tree-folder" style="padding-left:${8 + indent}px"
+           onclick="toggleFolder('${esc(fullPath)}')">
+        <span class="chevron ${isLeaf ? 'leaf' : (isExpanded ? 'open' : '')}">▶</span>
+        <span class="icon">${isExpanded ? '📂' : '📁'}</span>
+        <span class="name" title="${esc(fullPath)}">${esc(name)}</span>
+        <span class="badge">${fileCount}</span>
       </div>`;
-    if (hasChildren) {
-      html += `<ul class="folder-children ${isExpanded ? '' : 'collapsed'}"
+
+    if (!isLeaf) {
+      html += `<ul class="tree-children ${isExpanded ? '' : 'collapsed'}"
                    style="${isExpanded ? '' : 'max-height:0'}">`;
-      html += _renderFolderTree(child, fullPath, depth + 1);
+      // Sub-folders first, then files
+      html += _buildTree(child, fullPath, depth + 1);
       html += '</ul>';
     }
+
+    // Files directly under this folder (only if expanded and has files)
+    if (hasFiles && (isLeaf || isExpanded)) {
+      const files = _getFilesInNode(child);
+      const q = state.searchQuery.toLowerCase();
+      const filtered = q ? files.filter(d => (d.path||'').toLowerCase().includes(q)) : files;
+      filtered.forEach(d => {
+        const docName = (d.path || '').split('/').pop();
+        const dotClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
+        const isActive = state.currentDoc && state.currentDoc.path === d.path;
+        const fIndent = (depth + 1) * 16;
+        html += `<li>
+          <div class="tree-file ${isActive ? 'active' : ''}" style="padding-left:${8 + fIndent}px"
+               onclick="selectDoc('${esc(d.path)}')">
+            <span class="dot ${dotClass}"></span>
+            <span class="name" title="${esc(d.path)}">${esc(docName)}</span>
+            <span class="size">${fmtSize(d.size_kb)}</span>
+          </div>
+        </li>`;
+      });
+    }
+
     html += '</li>';
   }
+
+  // Root-level files (__files__)
+  if (prefix === '' && node.__files__ && node.__files__.length > 0) {
+    const files = _getFilesInNode(node);
+    const q = state.searchQuery.toLowerCase();
+    const filtered = q ? files.filter(d => (d.path||'').toLowerCase().includes(q)) : files;
+    filtered.forEach(d => {
+      const docName = (d.path || '').split('/').pop();
+      const dotClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
+      const isActive = state.currentDoc && state.currentDoc.path === d.path;
+      html += `<li>
+        <div class="tree-file ${isActive ? 'active' : ''}" style="padding-left:${8}px"
+             onclick="selectDoc('${esc(d.path)}')">
+          <span class="dot ${dotClass}"></span>
+          <span class="name" title="${esc(d.path)}">${esc(docName)}</span>
+          <span class="size">${fmtSize(d.size_kb)}</span>
+        </div>
+      </li>`;
+    });
+  }
+
   return html;
 }
 
-function renderFolders() {
-  const tree = document.getElementById('folderTree');
-  const totalCount = state.folderTree ? _countFiles(state.folderTree) : 0;
-  document.getElementById('folderCount').textContent = totalCount + ' 篇';
-  const isActive = state.currentFolder === null;
-  let html = `<li class="folder-node">
-    <div class="folder-row ${isActive ? 'active' : ''}" onclick="selectFolder(null)">
-      <span class="folder-toggle no-children">▶</span>
-      <span class="folder-icon">📋</span>
-      <span class="folder-name">全部</span>
-      <span class="folder-count">${totalCount}</span>
-    </div>
-  </li>`;
-  if (state.folderTree) html += _renderFolderTree(state.folderTree, '', 0);
-  tree.innerHTML = html;
+function renderTree() {
+  const root = document.getElementById('treeRoot');
+  const totalCount = state.folderTree ? countFiles(state.folderTree) : state.documents.length;
+  document.getElementById('totalCount').textContent = totalCount + ' 篇';
+
+  if (!state.folderTree || totalCount === 0) {
+    root.innerHTML = '<li style="padding:20px;text-align:center;opacity:0.35;font-size:0.82rem;">暂无文档</li>';
+    return;
+  }
+
+  root.innerHTML = _buildTree(state.folderTree, '', 0);
 }
 
 function toggleFolder(path) {
   if (state.expandedFolders.has(path)) state.expandedFolders.delete(path);
   else state.expandedFolders.add(path);
-  renderFolders();
-}
-
-function selectFolder(path) {
-  state.currentFolder = path;
-  renderFolders();
-  loadDocuments();
-}
-
-function toggleSection(section) {
-  const body = document.getElementById(section + 'Body');
-  const chevron = document.getElementById(section + 'Chevron');
-  if (body.style.display === 'none') {
-    body.style.display = '';
-    chevron.style.transform = '';
-  } else {
-    body.style.display = 'none';
-    chevron.style.transform = 'rotate(-90deg)';
-  }
-}
-
-/* ===== Documents ===== */
-async function loadDocuments() {
-  try {
-    const params = {};
-    if (state.currentFolder) params.folder = state.currentFolder;
-    const data = await api('api/documents', { params });
-    state.documents = Array.isArray(data) ? data : (data.documents || []);
-    renderDocuments();
-  } catch (e) { console.error('Documents load failed:', e); toast('加载文档失败', 'error'); }
-}
-
-function getFilteredDocs() {
-  let docs = [...state.documents];
-  if (state.searchQuery) {
-    const q = state.searchQuery.toLowerCase();
-    docs = docs.filter(d => (d.path || '').toLowerCase().includes(q));
-  }
-  docs.sort((a, b) => String((a.path||'').split('/').pop()).localeCompare(String((b.path||'').split('/').pop())));
-  return docs;
-}
-
-function renderDocuments() {
-  const docs = getFilteredDocs();
-  const list = document.getElementById('docList');
-  const empty = document.getElementById('docListEmpty');
-  document.getElementById('docCount').textContent = docs.length + ' 篇';
-  if (docs.length === 0) { list.innerHTML = ''; empty.style.display = ''; return; }
-  empty.style.display = 'none';
-  list.innerHTML = docs.map(d => {
-    const name = (d.path || '').split('/').pop();
-    const statusClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
-    const isActive = state.currentDoc && state.currentDoc.path === d.path;
-    return `<li class="doc-item ${isActive ? 'active' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
-      <span class="doc-status ${statusClass}" title="${d.kb_doc_id ? '已同步' : (d.sync_to_kb ? '待同步' : '未选择')}"></span>
-      <span class="doc-name" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span>
-      <span class="doc-meta">${formatSize(d.size_kb)}</span>
-    </li>`;
-  }).join('');
+  renderTree();
 }
 
 function onSearch() {
   state.searchQuery = document.getElementById('searchInput').value.trim();
-  renderDocuments();
+  renderTree();
 }
 
 /* ===== Document Viewer ===== */
 async function selectDoc(path) {
   if (state.editing) { if (!confirm('正在编辑，放弃修改？')) return; state.editing = false; }
-  const doc = state.documents.find(d => d.path === path);
+  const doc = state.docMap[path];
   if (!doc) return;
   state.currentDoc = doc;
-  renderDocuments();
+  renderTree();
   const name = (doc.path || '').split('/').pop();
-  document.getElementById('viewerTitle').innerHTML = `<span>📄</span> ${escapeHtml(name)}`;
+  document.getElementById('viewerTitle').innerHTML = `<span>📄</span> ${esc(name)}`;
   document.getElementById('viewerActions').style.display = '';
-  const content = document.getElementById('viewerContent');
-  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
+  document.getElementById('viewerContent').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
   try {
     const data = await api('api/document', { params: { path } });
     state.originalContent = data.content || '';
     renderMarkdown(state.originalContent);
   } catch (e) {
-    content.innerHTML = `<div class="empty-state"><span style="font-size:2.5rem;">❌</span><span style="font-size:0.82rem;">加载失败: ${escapeHtml(e.message)}</span></div>`;
+    document.getElementById('viewerContent').innerHTML = `<div class="empty-state"><span style="font-size:2.5rem;">❌</span><span style="font-size:0.82rem;">加载失败: ${esc(e.message)}</span></div>`;
   }
 }
 
 function renderMarkdown(text) {
   document.getElementById('viewerContent').innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
-  postRenderLinks();
+  postRender();
 }
 
 function mdToHtml(md) {
   if (!md) return '';
-  let html = escapeHtml(md);
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
-  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  html = html.replace(/^---+$/gm, '<hr>');
-  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
-  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/\n\n+/g, '</p><p>');
-  html = html.replace(/\n/g, '<br>');
-  if (!html.startsWith('<')) html = '<p>' + html + '</p>';
-  html = html.replace(/<p>\s*<\/p>/g, '');
-  return html;
+  let h = esc(md);
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  h = h.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  h = h.replace(/^---+$/gm, '<hr>');
+  h = h.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  h = h.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
+  h = h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
+  h = h.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  h = h.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  h = h.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  h = h.replace(/\n\n+/g, '</p><p>');
+  h = h.replace(/\n/g, '<br>');
+  if (!h.startsWith('<')) h = '<p>' + h + '</p>';
+  h = h.replace(/<p>\s*<\/p>/g, '');
+  return h;
 }
 
-function postRenderLinks() {
+function postRender() {
   document.querySelectorAll('.md-link[data-href]').forEach(el => {
     el.setAttribute('href', el.getAttribute('data-href'));
     el.removeAttribute('data-href');
   });
   document.querySelectorAll('.md-img[data-url]').forEach(el => {
-    const url = el.getAttribute('data-url');
-    const alt = el.textContent.replace(/\[image: |\]/g, '');
     const img = document.createElement('img');
-    img.src = url; img.alt = alt;
+    img.src = el.getAttribute('data-url');
+    img.alt = el.textContent.replace(/\[image: |\]/g, '');
     img.style.cssText = 'max-width:100%;border-radius:10px;margin:0.5rem 0;';
     el.replaceWith(img);
   });
@@ -686,7 +650,7 @@ function postRenderLinks() {
 /* ===== Edit Mode ===== */
 function toggleEdit() {
   state.editing = true;
-  document.getElementById('viewerContent').innerHTML = `<textarea class="editor-textarea" id="editorArea">${escapeHtml(state.originalContent)}</textarea>`;
+  document.getElementById('viewerContent').innerHTML = `<textarea class="editor-textarea" id="editorArea">${esc(state.originalContent)}</textarea>`;
   document.getElementById('btnEdit').style.display = 'none';
   document.getElementById('btnSave').style.display = '';
   document.getElementById('btnCancel').style.display = '';
@@ -722,6 +686,7 @@ async function syncFns() {
     state.lastFnsSync = Date.now() / 1000;
     toast(`FNS 同步完成: 新增 ${data.new||0}, 更新 ${data.updated||0}, 未变 ${data.unchanged||0}`, 'success');
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
+    renderTree();
   } catch (e) { toast('FNS 同步失败: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = '📥 从 FNS 同步'; }
 }
@@ -734,19 +699,19 @@ async function syncKb() {
     state.lastKbSync = Date.now() / 1000;
     toast(`知识库同步完成: 新增 ${data.new||0}, 更新 ${data.updated||0}${data.errors ? ', 失败 '+data.errors+' 篇' : ''}`, data.errors ? 'warning' : 'success');
     await Promise.all([loadStatus(), loadDocuments()]);
+    renderTree();
   } catch (e) { toast('知识库同步失败: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = '📤 同步到知识库'; }
 }
 
 /* ===== Utilities ===== */
-function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-function escapeAttr(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
 
 /* ===== Init ===== */
 async function init() {
   if (isBridge()) {
-    try { await Promise.race([bridge.ready(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))]); }
-    catch (e) { console.warn('bridge.ready():', e.message); }
+    try { await Promise.race([bridge.ready(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]); }
+    catch (e) { console.warn('bridge:', e.message); }
   }
   initTheme();
   if (isBridge()) {
@@ -757,14 +722,16 @@ async function init() {
       }
     });
   }
-  await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
+  await Promise.all([loadFolders(), loadDocuments()]);
+  renderTree();
+  await loadStatus();
   setInterval(loadStatus, 30000);
 }
 
 document.addEventListener('keydown', e => { if ((e.ctrlKey||e.metaKey) && e.key==='s') { e.preventDefault(); saveDoc(); } });
 init().catch(e => { console.error('Init failed:', e); toast('初始化失败: ' + e.message, 'error'); });
-window.onerror = (msg, url, line) => { console.error('Global error:', msg, url, line); toast(`JS Error: ${msg} (line ${line})`, 'error'); };
-window.addEventListener('unhandledrejection', e => { console.error('Unhandled rejection:', e.reason); toast('Promise Error: ' + (e.reason?.message||e.reason||'unknown'), 'error'); });
+window.onerror = (msg, url, line) => { console.error('Global error:', msg, url, line); toast(`JS Error: ${msg} (L${line})`, 'error'); };
+window.addEventListener('unhandledrejection', e => { console.error('Unhandled:', e.reason); toast('Error: ' + (e.reason?.message||'unknown'), 'error'); });
 </script>
 </body>
 </html>
