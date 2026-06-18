@@ -82,3 +82,16 @@
 - `POST /api/document/delete` - 删除文档
 - `POST /api/document/import` - 导入文档（multipart/form-data）
 - `GET /api/document/export` - 导出文档（下载 .md 文件）
+
+## [3.5.0] - 2026-06-18
+
+### 📤 同步到 FNS
+- **新增「📤 同步到 FNS」按钮**：将暂存区文档推送到 FNS/Obsidian
+- 支持全量推送（所有暂存文档）
+- 并发上传（默认 5 路），396 篇文档 2.2 秒完成
+- Toast 提示同步结果
+
+### 🔧 后端
+- FNSClient 新增 `upload_note` / `upload_notes_concurrent` 方法
+- StagingManager 新增 `sync_to_fns` 方法
+- 新增 `POST /api/sync/to-fns` API 端点
