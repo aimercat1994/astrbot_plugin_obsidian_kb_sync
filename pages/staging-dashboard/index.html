@@ -163,8 +163,7 @@ body {
 }
 
 /* Children container with collapse animation */
-.tree-children { overflow: hidden; transition: max-height 0.25s ease; }
-.tree-children.collapsed { max-height: 0 !important; }
+.tree-children.collapsed { display: none; }
 
 /* ===== Main Content ===== */
 .main-content {
@@ -510,9 +509,7 @@ function _buildTree(node, prefix, depth) {
       </div>`;
 
     // Children container: files + subfolders
-    const showContent = isExpanded;
-    html += `<ul class="tree-children ${showContent ? '' : 'collapsed'}"
-                 style="${showContent ? '' : 'max-height:0'}">`;
+    html += `<ul class="tree-children ${isExpanded ? '' : 'collapsed'}" data-folder="${esc(fullPath)}">`;
 
       // Files first
       if (hasFiles) {
