@@ -253,8 +253,10 @@ body {
   padding: 10px 16px; border-radius: 10px;
   font-size: 0.84rem; color: #fff;
   box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-  pointer-events: auto; animation: toast-in 0.3s ease-out;
+  pointer-events: auto;
   backdrop-filter: blur(8px); max-width: 380px;
+  opacity: 1;
+  animation: toast-in 0.3s ease-out both;
 }
 .toast-item.info { background: linear-gradient(135deg, #6366f1, #818cf8); }
 .toast-item.success { background: linear-gradient(135deg, #16a34a, #22c55e); }
