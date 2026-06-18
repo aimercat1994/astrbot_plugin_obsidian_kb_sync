@@ -6,210 +6,379 @@
 <title>Obsidian 暂存区</title>
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
-<style type="text/tailwindcss">
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
-
-/* App shell */
-html, body { @apply h-full overflow-hidden; }
-body { @apply m-0 font-sans; }
-
-/* Markdown content */
-.md-render { @apply text-base leading-7; }
-.md-render h1 { @apply text-2xl font-bold mt-6 mb-3 pb-2 border-b-2 border-primary/20; }
-.md-render h2 { @apply text-xl font-bold mt-5 mb-2 text-primary; }
-.md-render h3 { @apply text-lg font-semibold mt-4 mb-2; }
-.md-render h4 { @apply text-base font-semibold mt-3 mb-1; }
-.md-render pre {
-  @apply bg-base-200 p-4 rounded-xl overflow-x-auto text-sm
-         border border-base-300 shadow-sm;
+<style>
+/* ===== App Shell ===== */
+html, body { height: 100%; overflow: hidden; margin: 0; }
+body {
+  display: flex; flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--color-base-100); color: var(--color-base-content);
 }
-.md-render code { @apply text-sm; }
+
+/* ===== Layout ===== */
+.app-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* ===== Sidebar ===== */
+.sidebar {
+  width: 300px; min-width: 260px; max-width: 420px;
+  display: flex; flex-direction: column;
+  background: var(--color-base-100);
+  border-right: 1px solid var(--color-base-300);
+  overflow: hidden; flex-shrink: 0;
+}
+.sidebar-section { display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-section-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 16px; font-size: 0.75rem; font-weight: 600;
+  color: var(--color-base-content);
+  opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--color-base-300);
+  cursor: pointer; user-select: none;
+}
+.sidebar-section-header:hover { opacity: 0.7; }
+.sidebar-section-body { flex: 1; overflow-y: auto; }
+
+/* ===== Folder Tree ===== */
+.folder-tree { list-style: none; margin: 0; padding: 4px 0; }
+.folder-tree ul { list-style: none; margin: 0; padding: 0; }
+.folder-node { position: relative; }
+.folder-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 12px; cursor: pointer; font-size: 0.84rem;
+  border-radius: 6px; margin: 0 6px;
+  transition: background 0.15s;
+}
+.folder-row:hover { background: var(--color-base-200); }
+.folder-row.active {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary); font-weight: 600;
+}
+.folder-row .folder-toggle {
+  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; color: var(--color-base-content); opacity: 0.4;
+  transition: transform 0.2s; flex-shrink: 0;
+}
+.folder-row .folder-toggle.expanded { transform: rotate(90deg); }
+.folder-row .folder-toggle.no-children { visibility: hidden; }
+.folder-row .folder-icon { font-size: 0.9rem; flex-shrink: 0; }
+.folder-row .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-row .folder-count {
+  font-size: 0.7rem; opacity: 0.5;
+  background: var(--color-base-300); color: var(--color-base-content);
+  padding: 1px 6px; border-radius: 10px; min-width: 20px; text-align: center;
+  flex-shrink: 0;
+}
+.folder-row.active .folder-count {
+  background: var(--color-primary); color: var(--color-primary-content);
+  opacity: 1;
+}
+.folder-children {
+  overflow: hidden; transition: max-height 0.25s ease;
+}
+.folder-children.collapsed { max-height: 0 !important; }
+
+/* ===== Document List ===== */
+.doc-list { list-style: none; margin: 0; padding: 4px 0; }
+.doc-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; cursor: pointer; font-size: 0.82rem;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--color-base-200);
+}
+.doc-item:last-child { border-bottom: none; }
+.doc-item:hover { background: var(--color-base-200); }
+.doc-item.active {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+.doc-item .doc-status {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.doc-item .doc-status.synced { background: var(--color-success); box-shadow: 0 0 5px var(--color-success); }
+.doc-item .doc-status.selected { background: var(--color-primary); }
+.doc-item .doc-status.none { background: var(--color-base-300); }
+.doc-item .doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-item .doc-meta { font-size: 0.72rem; opacity: 0.45; white-space: nowrap; flex-shrink: 0; }
+
+/* ===== Sidebar Search ===== */
+.sidebar-search {
+  padding: 8px 12px; border-bottom: 1px solid var(--color-base-300);
+}
+.sidebar-search input {
+  width: 100%; padding: 5px 10px 5px 30px;
+  font-size: 0.82rem; border-radius: 20px;
+  border: 1px solid var(--color-base-300);
+  background: var(--color-base-200);
+  color: var(--color-base-content);
+  outline: none; transition: border-color 0.2s;
+}
+.sidebar-search input:focus { border-color: var(--color-primary); }
+.sidebar-search-wrap {
+  position: relative;
+}
+.sidebar-search-wrap::before {
+  content: '🔍'; position: absolute; left: 9px; top: 50%;
+  transform: translateY(-50%); font-size: 0.75rem; pointer-events: none;
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-width: 0;
+  background: var(--color-base-100);
+}
+
+/* ===== Top Bar ===== */
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 20px; height: 52px; flex-shrink: 0;
+  background: var(--color-base-100);
+  border-bottom: 1px solid var(--color-base-300);
+  position: relative;
+}
+.topbar::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-secondary), var(--color-accent));
+  opacity: 0.6;
+}
+.topbar-title {
+  font-size: 1.1rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+}
+.topbar-title .icon { -webkit-text-fill-color: initial; }
+.topbar-spacer { flex: 1; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Status badges */
+.status-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 0.73rem; font-weight: 500;
+  border: 1px solid var(--color-base-300);
+  transition: all 0.2s;
+}
+.status-badge.connected {
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+  color: var(--color-success);
+}
+.status-badge.disconnected { opacity: 0.5; }
+.status-badge .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-base-300); transition: all 0.2s;
+}
+.status-badge.connected .dot {
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+
+/* ===== Viewer ===== */
+.viewer {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-height: 0;
+}
+.viewer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 20px; flex-shrink: 0;
+  border-bottom: 1px solid var(--color-base-300);
+}
+.viewer-title {
+  font-size: 0.95rem; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+.viewer-actions { display: flex; gap: 6px; }
+.viewer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+/* ===== Markdown Render ===== */
+.md-render { font-size: 0.9rem; line-height: 1.8; }
+.md-render h1 { font-size: 1.5rem; font-weight: 700; margin: 1.2rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent); }
+.md-render h2 { font-size: 1.3rem; font-weight: 700; margin: 1rem 0 0.4rem; color: var(--color-primary); }
+.md-render h3 { font-size: 1.1rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.md-render h4 { font-size: 1rem; font-weight: 600; margin: 0.6rem 0 0.2rem; }
+.md-render pre {
+  background: var(--color-base-200); padding: 14px 16px;
+  border-radius: 10px; overflow-x: auto; font-size: 0.82rem;
+  border: 1px solid var(--color-base-300);
+}
+.md-render code { font-size: 0.85em; }
 .md-render :not(pre) > code {
-  @apply bg-primary/10 text-primary px-1.5 py-0.5 rounded;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary); padding: 2px 5px; border-radius: 4px;
 }
 .md-render blockquote {
-  @apply border-l-4 border-primary pl-4 my-3 py-2
-         bg-primary/5 rounded-r-lg italic;
+  border-left: 3px solid var(--color-primary);
+  padding: 8px 16px; margin: 0.8rem 0;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  border-radius: 0 6px 6px 0; font-style: italic;
 }
-.md-render img { @apply max-w-full rounded-xl shadow-md my-3; }
-.md-render ul, .md-render ol { @apply pl-6 my-2; }
-.md-render li { @apply mb-1; }
-.md-render hr { @apply border-t-2 border-primary/10 my-4; }
-.md-render a { @apply text-primary underline decoration-primary/30 hover:decoration-primary transition-colors; }
-.md-render table { @apply w-full border-collapse my-3 text-sm; }
-.md-render th { @apply bg-primary/10 font-semibold text-left p-2 border border-base-300; }
-.md-render td { @apply p-2 border border-base-300; }
-.md-render strong { @apply font-bold; }
-.md-render em { @apply italic; }
+.md-render img { max-width: 100%; border-radius: 10px; margin: 0.5rem 0; }
+.md-render ul, .md-render ol { padding-left: 1.5rem; }
+.md-render li { margin-bottom: 0.2rem; }
+.md-render hr { border: none; border-top: 2px solid color-mix(in srgb, var(--color-primary) 10%, transparent); margin: 1rem 0; }
+.md-render a { color: var(--color-primary); }
+.md-render table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.85rem; }
+.md-render th, .md-render td { padding: 8px 12px; border: 1px solid var(--color-base-300); }
+.md-render th { background: color-mix(in srgb, var(--color-primary) 10%, transparent); font-weight: 600; text-align: left; }
 
 /* Editor */
 .editor-textarea {
-  @apply w-full h-full resize-none border-0 outline-none
-         bg-base-100 text-base-content p-4 leading-relaxed;
+  width: 100%; height: 100%; resize: none; border: none; outline: none;
+  background: var(--color-base-100); color: var(--color-base-content);
+  padding: 16px 20px; font-size: 0.85rem; line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-  font-size: 0.85rem;
   tab-size: 2;
 }
 
-/* Folder active indicator */
-.folder-active-indicator {
-  @apply absolute left-0 top-1 bottom-1 w-1 rounded-r-full bg-primary;
+/* Empty states */
+.empty-state {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px; opacity: 0.35;
 }
 
-/* Sort indicators */
-th.sort-asc::after { content: ' ▲'; @apply text-xs text-primary; }
-th.sort-desc::after { content: ' ▼'; @apply text-xs text-primary; }
-
-/* Toast animation */
-@keyframes toast-slide-in {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+/* ===== Bottom Bar ===== */
+.bottombar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 20px; height: 30px; flex-shrink: 0;
+  background: var(--color-base-100);
+  border-top: 1px solid var(--color-base-300);
+  font-size: 0.74rem; opacity: 0.5;
 }
-.toast-animate-in { animation: toast-slide-in 0.3s ease-out; }
+.bottombar .sep { opacity: 0.25; }
+.bottombar .highlight { color: var(--color-primary); font-weight: 600; opacity: 1; }
 
-/* Status dot glow */
-.dot-glow-success { box-shadow: 0 0 6px oklch(var(--su)); }
-.dot-glow-error   { box-shadow: 0 0 6px oklch(var(--er)); }
+/* ===== Toast ===== */
+.toast-wrap {
+  position: fixed; top: 60px; right: 16px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 10px;
+  font-size: 0.84rem; color: #fff;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  pointer-events: auto; animation: toast-in 0.3s ease-out;
+  backdrop-filter: blur(8px); max-width: 380px;
+}
+.toast-item.info { background: linear-gradient(135deg, #6366f1, #818cf8); }
+.toast-item.success { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.toast-item.error { background: linear-gradient(135deg, #dc2626, #ef4444); }
+.toast-item.warning { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.toast-item.fade-out { opacity: 0; transform: translateX(20px); transition: all 0.3s; }
+@keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-/* Scrollbar */
+/* ===== Scrollbar ===== */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  @apply bg-base-300 rounded-full;
-}
-::-webkit-scrollbar-thumb:hover { @apply bg-primary; }
+::-webkit-scrollbar-thumb { background: var(--color-base-300); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-primary); }
+::selection { background: color-mix(in srgb, var(--color-primary) 20%, transparent); }
 
-/* Selection */
-::selection { @apply bg-primary/20; }
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .sidebar { width: 100%; max-width: none; border-right: none; }
+  .main-content { display: none; }
+}
 </style>
 </head>
-<body class="flex flex-col bg-base-100 text-base-content">
+<body>
 
 <!-- ===== Top Bar ===== -->
-<div class="navbar bg-base-100 border-b border-base-300 shadow-sm shrink-0 px-4 min-h-[56px]
-            relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px]
-            after:bg-gradient-to-r after:from-primary after:via-secondary after:to-accent after:opacity-60">
-  <div class="navbar-start gap-3">
-    <span class="text-xl">📚</span>
-    <span class="text-lg font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-      Obsidian 暂存区
-    </span>
+<header class="topbar">
+  <div class="topbar-title"><span class="icon">📚</span> Obsidian 暂存区</div>
+  <div style="display:flex;gap:8px;">
+    <span class="status-badge" id="fnsStatus"><span class="dot" id="fnsDot"></span>FNS</span>
+    <span class="status-badge" id="kbStatus"><span class="dot" id="kbDot"></span>知识库</span>
   </div>
-  <div class="navbar-center gap-2">
-    <div class="badge badge-sm gap-1.5 py-2.5 px-3 font-medium" id="fnsStatus">
-      <span class="w-2 h-2 rounded-full bg-base-300 inline-block dot-glow" id="fnsDot"></span>
-      FNS
-    </div>
-    <div class="badge badge-sm gap-1.5 py-2.5 px-3 font-medium" id="kbStatus">
-      <span class="w-2 h-2 rounded-full bg-base-300 inline-block dot-glow" id="kbDot"></span>
-      知识库
-    </div>
-  </div>
-  <div class="navbar-end gap-2">
-    <button class="btn btn-sm btn-ghost border border-base-300 gap-1" id="btnSyncFns" onclick="syncFns()">
-      📥 从 FNS 同步
-    </button>
-    <button class="btn btn-sm btn-success text-white gap-1" id="btnSyncKb" onclick="syncKb()">
-      📤 同步到知识库
-    </button>
-    <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg">
+  <div class="topbar-spacer"></div>
+  <div class="topbar-actions">
+    <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
+    <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg" title="切换主题">
       <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
-      <span class="swap-on">☀️</span>
-      <span class="swap-off">🌙</span>
+      <span class="swap-on">☀️</span><span class="swap-off">🌙</span>
     </label>
   </div>
-</div>
+</header>
 
-<!-- ===== Main ===== -->
-<div class="flex flex-1 overflow-hidden min-h-0">
+<!-- ===== App Shell ===== -->
+<div class="app-shell">
 
   <!-- Sidebar -->
-  <aside class="w-[230px] shrink-0 bg-base-100 border-r border-base-300 flex flex-col overflow-hidden">
-    <div class="px-4 py-3 text-xs font-semibold text-base-content/50 uppercase tracking-wider border-b border-base-300">
-      📁 文件夹
+  <aside class="sidebar" id="sidebar">
+    <!-- Folder Section -->
+    <div class="sidebar-section" style="flex:0 0 auto; max-height:50%; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="sidebar-section-header" onclick="toggleSection('folder')">
+        <span id="folderChevron" style="transition:transform 0.2s;">▾</span>
+        📁 文件夹
+        <span style="margin-left:auto;font-size:0.7rem;opacity:0.5;" id="folderCount"></span>
+      </div>
+      <div class="sidebar-section-body" id="folderBody">
+        <ul class="folder-tree" id="folderTree"></ul>
+      </div>
     </div>
-    <div class="flex-1 overflow-y-auto py-2 space-y-0.5" id="folderList"></div>
+
+    <!-- Divider -->
+    <div style="height:1px;background:var(--color-base-300);flex-shrink:0;"></div>
+
+    <!-- Doc List Section -->
+    <div class="sidebar-section" style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0;">
+      <div class="sidebar-section-header">
+        📄 文档列表
+        <span style="margin-left:auto;font-size:0.7rem;opacity:0.5;" id="docCount"></span>
+      </div>
+      <div class="sidebar-search">
+        <div class="sidebar-search-wrap">
+          <input type="search" placeholder="搜索文件名..." id="searchInput" oninput="onSearch()">
+        </div>
+      </div>
+      <div class="sidebar-section-body" id="docListBody">
+        <ul class="doc-list" id="docList"></ul>
+        <div class="empty-state" id="docListEmpty" style="display:none;">
+          <span style="font-size:2.5rem;">📄</span>
+          <span style="font-size:0.82rem;">暂无文档</span>
+        </div>
+      </div>
+    </div>
   </aside>
 
-  <!-- Content -->
-  <main class="flex-1 flex flex-col overflow-hidden min-w-0">
-
-    <!-- Toolbar -->
-    <div class="flex items-center gap-3 px-4 py-2.5 bg-base-100 border-b border-base-300 shrink-0">
-      <label class="input input-sm input-bordered flex items-center gap-2 flex-1 max-w-[320px] rounded-full">
-        🔍
-        <input type="search" placeholder="搜索文件名..." class="grow" id="searchInput" oninput="onSearch()">
-      </label>
-      <div class="flex gap-1.5">
-        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchSetSync(true)">全选同步</button>
-        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchSetChunk(true)">全选预切块</button>
-        <button class="btn btn-xs btn-ghost border border-base-300" onclick="batchClear()">取消全选</button>
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Viewer Header -->
+    <div class="viewer-header">
+      <span class="viewer-title" id="viewerTitle"><span>📄</span> 选择文档以预览</span>
+      <div class="viewer-actions" id="viewerActions" style="display:none;">
+        <button class="btn btn-xs btn-ghost border border-base-300" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
+        <button class="btn btn-xs btn-primary text-white" id="btnSave" onclick="saveDoc()" style="display:none;">💾 保存</button>
+        <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none;">取消</button>
       </div>
     </div>
-
-    <!-- Split View -->
-    <div class="flex flex-1 overflow-hidden min-h-0">
-
-      <!-- Doc List -->
-      <div class="flex-1 flex flex-col overflow-hidden min-w-0 border-r border-base-300">
-        <div class="flex-1 overflow-auto" id="docTableWrapper">
-          <table class="table table-sm table-pin-rows" id="docTable">
-            <thead>
-              <tr class="bg-base-100">
-                <th class="w-10 text-center">同步</th>
-                <th class="w-10 text-center">切块</th>
-                <th class="cursor-pointer select-none hover:text-primary" onclick="sortBy('name')" data-sort="name">文件名</th>
-                <th class="cursor-pointer select-none hover:text-primary w-20" onclick="sortBy('size_kb')" data-sort="size_kb">大小</th>
-                <th class="cursor-pointer select-none hover:text-primary w-28" onclick="sortBy('last_sync')" data-sort="last_sync">最后同步</th>
-              </tr>
-            </thead>
-            <tbody id="docTableBody"></tbody>
-          </table>
-        </div>
-        <div class="flex-1 flex flex-col items-center justify-center gap-2 text-base-content/40" id="docListEmpty" style="display:none">
-          <span class="text-5xl">📄</span>
-          <span class="text-sm">暂无文档</span>
-        </div>
+    <!-- Viewer Body -->
+    <div class="viewer-body" id="viewerContent">
+      <div class="empty-state">
+        <span style="font-size:3rem;">👀</span>
+        <span style="font-size:0.85rem;">点击左侧文档查看内容</span>
       </div>
-
-      <!-- Viewer -->
-      <div class="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div class="flex items-center justify-between px-4 py-2.5 bg-base-100 border-b border-base-300 shrink-0">
-          <span class="font-semibold text-sm flex items-center gap-2" id="viewerTitle">
-            <span>📄</span> 选择文档以预览
-          </span>
-          <div class="flex gap-1.5" id="viewerActions" style="display:none">
-            <button class="btn btn-xs btn-ghost border border-base-300 gap-1" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
-            <button class="btn btn-xs btn-primary text-white gap-1" id="btnSave" onclick="saveDoc()" style="display:none">💾 保存</button>
-            <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none">取消</button>
-          </div>
-        </div>
-        <div class="flex-1 overflow-y-auto p-5" id="viewerContent">
-          <div class="flex flex-col items-center justify-center h-full gap-3 text-base-content/40">
-            <span class="text-5xl">👀</span>
-            <span class="text-sm">点击左侧文档查看内容</span>
-          </div>
-        </div>
-      </div>
-
     </div>
-  </main>
+  </div>
+
 </div>
 
 <!-- ===== Bottom Bar ===== -->
-<div class="flex items-center gap-3 px-5 h-8 bg-base-100 border-t border-base-300
-            text-xs text-base-content/50 shrink-0 tabular-nums" id="bottomBar">
-  <span>共 <span class="text-primary font-semibold" id="statTotal">0</span> 篇</span>
-  <span class="opacity-20">|</span>
-  <span>已选 <span class="text-primary font-semibold" id="statSelected">0</span> 篇</span>
-  <span class="opacity-20">|</span>
-  <span>已同步 <span class="text-primary font-semibold" id="statSynced">0</span> 篇</span>
-  <span class="opacity-20">|</span>
+<footer class="bottombar">
+  <span>共 <span class="highlight" id="statTotal">0</span> 篇</span>
+  <span class="sep">|</span>
+  <span>已选 <span class="highlight" id="statSelected">0</span> 篇</span>
+  <span class="sep">|</span>
+  <span>已同步 <span class="highlight" id="statSynced">0</span> 篇</span>
+  <span class="sep">|</span>
   <span id="statLastSync">上次同步: --</span>
-</div>
+</footer>
 
-<!-- Toast Container -->
-<div class="fixed top-[64px] right-4 z-[9999] flex flex-col gap-2 pointer-events-none" id="toastContainer"></div>
+<!-- Toast -->
+<div class="toast-wrap" id="toastContainer"></div>
 
 <!-- Bridge SDK -->
 <script src="/api/plugin/page/bridge-sdk.js"></script>
@@ -217,49 +386,35 @@ th.sort-desc::after { content: ' ▼'; @apply text-xs text-primary; }
 <script>
 /* ===== State ===== */
 let state = {
-  folders: [],
   folderTree: null,
   documents: [],
   currentFolder: null,
   currentDoc: null,
   editing: false,
   originalContent: '',
-  sortField: 'name',
-  sortAsc: true,
   searchQuery: '',
   lastFnsSync: null,
   lastKbSync: null,
+  expandedFolders: new Set(),
 };
 
 /* ===== Bridge / API ===== */
 const bridge = window.AstrBotPluginPage;
-
-function isBridge() {
-  return bridge && typeof bridge.apiGet === 'function';
-}
+function isBridge() { return bridge && typeof bridge.apiGet === 'function'; }
 
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   if (isBridge()) {
     const endpoint = path.replace(/^\//, '');
     try {
-      if (method === 'GET') {
-        return await bridge.apiGet(endpoint, opts.params || {});
-      } else {
-        const body = opts.body
-          ? (typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body)
-          : {};
-        return await bridge.apiPost(endpoint, body);
-      }
-    } catch (e) {
-      throw new Error(e.message || 'Bridge API error');
-    }
+      if (method === 'GET') return await bridge.apiGet(endpoint, opts.params || {});
+      const body = opts.body ? (typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body) : {};
+      return await bridge.apiPost(endpoint, body);
+    } catch (e) { throw new Error(e.message || 'Bridge API error'); }
   } else {
     let url = path;
     if (opts.params && Object.keys(opts.params).length > 0) {
-      const qs = Object.entries(opts.params)
-        .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-        .join('&');
+      const qs = Object.entries(opts.params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
       url += (url.includes('?') ? '&' : '?') + qs;
     }
     const fetchOpts = { headers: {'Content-Type': 'application/json'} };
@@ -274,16 +429,11 @@ async function api(path, opts = {}) {
 /* ===== Theme ===== */
 function initTheme() {
   let isDark = false;
-  if (isBridge()) {
-    const ctx = bridge.getContext();
-    if (ctx && ctx.isDark !== undefined) isDark = ctx.isDark;
-  } else {
-    try { isDark = localStorage.getItem('staging-theme') === 'dark'; } catch (e) {}
-  }
+  if (isBridge()) { const ctx = bridge.getContext(); if (ctx && ctx.isDark !== undefined) isDark = ctx.isDark; }
+  else { try { isDark = localStorage.getItem('staging-theme') === 'dark'; } catch (e) {} }
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
   document.getElementById('themeToggle').checked = isDark;
 }
-
 function toggleTheme() {
   const isDark = document.getElementById('themeToggle').checked;
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -294,22 +444,11 @@ function toggleTheme() {
 function toast(msg, type = 'info') {
   const container = document.getElementById('toastContainer');
   const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
-  const colors = {
-    info: 'alert-info',
-    success: 'alert-success',
-    error: 'alert-error',
-    warning: 'alert-warning'
-  };
   const el = document.createElement('div');
-  el.className = `alert ${colors[type] || 'alert-info'} shadow-lg pointer-events-auto toast-animate-in text-sm py-2 px-4 gap-2`;
+  el.className = `toast-item ${type}`;
   el.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(msg)}</span>`;
   container.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateX(20px)';
-    el.style.transition = 'all 0.3s ease';
-    setTimeout(() => el.remove(), 300);
-  }, 3500);
+  setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 300); }, 3500);
 }
 
 /* ===== Status ===== */
@@ -319,31 +458,15 @@ async function loadStatus() {
     document.getElementById('statTotal').textContent = s.total_documents ?? 0;
     document.getElementById('statSelected').textContent = s.selected_for_sync ?? 0;
     document.getElementById('statSynced').textContent = s.synced_to_kb ?? 0;
-    document.getElementById('statLastSync').textContent =
-      `上次同步: ${state.lastFnsSync ? formatTime(state.lastFnsSync) : '--'}`;
-
-    updateStatusBadge('fnsStatus', 'fnsDot', !!state.lastFnsSync);
-    updateStatusBadge('kbStatus', 'kbDot', !!state.lastKbSync);
-  } catch (e) {
-    console.error('Status load failed:', e);
-  }
+    document.getElementById('statLastSync').textContent = `上次同步: ${state.lastFnsSync ? formatTime(state.lastFnsSync) : '--'}`;
+    updateBadge('fnsStatus', 'fnsDot', !!state.lastFnsSync);
+    updateBadge('kbStatus', 'kbDot', !!state.lastKbSync);
+  } catch (e) { console.error('Status load failed:', e); }
 }
-
-function updateStatusBadge(badgeId, dotId, connected) {
+function updateBadge(badgeId, dotId, ok) {
   const badge = document.getElementById(badgeId);
-  const dot = document.getElementById(dotId);
-  badge.className = badge.className.replace(/badge-(success|error|ghost)/g, '').trim();
-  if (connected) {
-    badge.classList.add('badge-success', 'text-white');
-    dot.className = dot.className.replace(/bg-\S+/g, '').trim();
-    dot.classList.add('bg-white', 'dot-glow-success');
-  } else {
-    badge.classList.add('badge-ghost', 'border', 'border-base-300');
-    dot.className = dot.className.replace(/bg-\S+/g, '').trim();
-    dot.classList.add('bg-base-content/30');
-  }
+  badge.className = 'status-badge ' + (ok ? 'connected' : 'disconnected');
 }
-
 function formatTime(ts) {
   if (!ts) return '--';
   const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
@@ -351,7 +474,6 @@ function formatTime(ts) {
   const pad = n => String(n).padStart(2, '0');
   return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
 function formatSize(kb) {
   if (kb == null) return '--';
   if (kb < 1) return `${(kb * 1024).toFixed(0)} B`;
@@ -364,75 +486,89 @@ async function loadFolders() {
   try {
     const tree = await api('api/folders');
     state.folderTree = tree;
+    // Auto-expand root level
+    for (const key of Object.keys(tree)) {
+      if (key !== '__files__') state.expandedFolders.add(key);
+    }
     renderFolders();
-  } catch (e) {
-    console.error('Folders load failed:', e);
-    toast('加载文件夹失败: ' + (e.message || 'unknown'), 'error');
-  }
+  } catch (e) { console.error('Folders load failed:', e); toast('加载文件夹失败', 'error'); }
 }
 
 function _countFiles(node) {
   let count = (node.__files__ || []).length;
-  for (const [k, v] of Object.entries(node)) {
-    if (k !== '__files__') count += _countFiles(v);
-  }
+  for (const [k, v] of Object.entries(node)) { if (k !== '__files__') count += _countFiles(v); }
   return count;
 }
 
-function _renderTree(node, prefix, depth) {
+function _renderFolderTree(node, prefix, depth) {
   let html = '';
   for (const [name, child] of Object.entries(node)) {
     if (name === '__files__') continue;
     const fullPath = prefix ? `${prefix}/${name}` : name;
     const count = _countFiles(child);
-    const isActive = state.currentFolder === fullPath;
     const hasChildren = Object.keys(child).some(k => k !== '__files__');
-    const indent = depth * 16;
-    html += `
-      <li>
-        <a onclick="selectFolder('${escapeAttr(fullPath)}')"
-           class="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
-                  ${isActive ? 'bg-primary/15 text-primary font-semibold' : 'hover:bg-base-200'}"
-           style="padding-left:${12 + indent}px"
-           title="${escapeAttr(fullPath)}">
-          ${isActive ? '<div class="folder-active-indicator"></div>' : ''}
-          <span class="text-base">${hasChildren ? '📁' : '📂'}</span>
-          <span class="truncate flex-1">${escapeHtml(name)}</span>
-          <span class="badge badge-xs ${isActive ? 'badge-primary text-white' : 'badge-ghost'}">${count}</span>
-        </a>
-      </li>`;
+    const isExpanded = state.expandedFolders.has(fullPath);
+    const isActive = state.currentFolder === fullPath;
+    const indent = depth * 14;
+    html += `<li class="folder-node">
+      <div class="folder-row ${isActive ? 'active' : ''}" style="padding-left:${10 + indent}px"
+           onclick="selectFolder('${escapeAttr(fullPath)}')">
+        <span class="folder-toggle ${hasChildren ? (isExpanded ? 'expanded' : '') : 'no-children'}"
+              onclick="event.stopPropagation(); toggleFolder('${escapeAttr(fullPath)}')">▶</span>
+        <span class="folder-icon">${hasChildren ? (isExpanded ? '📂' : '📁') : '📄'}</span>
+        <span class="folder-name" title="${escapeAttr(fullPath)}">${escapeHtml(name)}</span>
+        <span class="folder-count">${count}</span>
+      </div>`;
     if (hasChildren) {
-      html += _renderTree(child, fullPath, depth + 1);
+      html += `<ul class="folder-children ${isExpanded ? '' : 'collapsed'}"
+                   style="${isExpanded ? '' : 'max-height:0'}">`;
+      html += _renderFolderTree(child, fullPath, depth + 1);
+      html += '</ul>';
     }
+    html += '</li>';
   }
   return html;
 }
 
 function renderFolders() {
-  const container = document.getElementById('folderList');
-  const totalCount = state.folderTree ? _countFiles(state.folderTree) : state.folders.reduce((s, f) => s + (f.count || 0), 0);
-  let html = `<ul class="menu menu-sm w-full p-0">
-    <li>
-      <a onclick="selectFolder(null)"
-         class="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all
-                ${state.currentFolder === null ? 'bg-primary/15 text-primary font-semibold' : 'hover:bg-base-200'}">
-        ${state.currentFolder === null ? '<div class="folder-active-indicator"></div>' : ''}
-        <span class="text-base">📋</span>
-        <span class="flex-1">全部</span>
-        <span class="badge badge-xs ${state.currentFolder === null ? 'badge-primary text-white' : 'badge-ghost'}">${totalCount}</span>
-      </a>
-    </li>`;
-  if (state.folderTree) {
-    html += _renderTree(state.folderTree, '', 0);
-  }
-  html += '</ul>';
-  container.innerHTML = html;
+  const tree = document.getElementById('folderTree');
+  const totalCount = state.folderTree ? _countFiles(state.folderTree) : 0;
+  document.getElementById('folderCount').textContent = totalCount + ' 篇';
+  const isActive = state.currentFolder === null;
+  let html = `<li class="folder-node">
+    <div class="folder-row ${isActive ? 'active' : ''}" onclick="selectFolder(null)">
+      <span class="folder-toggle no-children">▶</span>
+      <span class="folder-icon">📋</span>
+      <span class="folder-name">全部</span>
+      <span class="folder-count">${totalCount}</span>
+    </div>
+  </li>`;
+  if (state.folderTree) html += _renderFolderTree(state.folderTree, '', 0);
+  tree.innerHTML = html;
+}
+
+function toggleFolder(path) {
+  if (state.expandedFolders.has(path)) state.expandedFolders.delete(path);
+  else state.expandedFolders.add(path);
+  renderFolders();
 }
 
 function selectFolder(path) {
   state.currentFolder = path;
   renderFolders();
   loadDocuments();
+}
+
+function toggleSection(section) {
+  const body = document.getElementById(section + 'Body');
+  const chevron = document.getElementById(section + 'Chevron');
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    chevron.style.transform = '';
+  } else {
+    body.style.display = 'none';
+    chevron.style.transform = 'rotate(-90deg)';
+  }
 }
 
 /* ===== Documents ===== */
@@ -443,86 +579,36 @@ async function loadDocuments() {
     const data = await api('api/documents', { params });
     state.documents = Array.isArray(data) ? data : (data.documents || []);
     renderDocuments();
-  } catch (e) {
-    console.error('Documents load failed:', e);
-    toast('加载文档列表失败: ' + (e.message || 'unknown'), 'error');
-  }
+  } catch (e) { console.error('Documents load failed:', e); toast('加载文档失败', 'error'); }
 }
 
 function getFilteredDocs() {
   let docs = [...state.documents];
   if (state.searchQuery) {
     const q = state.searchQuery.toLowerCase();
-    docs = docs.filter(d => {
-      const name = (d.path || '').split('/').pop();
-      return name.toLowerCase().includes(q) || (d.path || '').toLowerCase().includes(q);
-    });
+    docs = docs.filter(d => (d.path || '').toLowerCase().includes(q));
   }
-  const field = state.sortField;
-  const asc = state.sortAsc ? 1 : -1;
-  docs.sort((a, b) => {
-    let va = field === 'name' ? (a.path || '').split('/').pop() : a[field];
-    let vb = field === 'name' ? (b.path || '').split('/').pop() : b[field];
-    if (field === 'name') return asc * String(va).localeCompare(String(vb));
-    if (va == null) return 1;
-    if (vb == null) return -1;
-    return asc * (va - vb);
-  });
+  docs.sort((a, b) => String((a.path||'').split('/').pop()).localeCompare(String((b.path||'').split('/').pop())));
   return docs;
 }
 
 function renderDocuments() {
   const docs = getFilteredDocs();
-  const tbody = document.getElementById('docTableBody');
+  const list = document.getElementById('docList');
   const empty = document.getElementById('docListEmpty');
-  const table = document.getElementById('docTable');
-
-  document.querySelectorAll('th[data-sort]').forEach(th => {
-    th.classList.remove('sort-asc', 'sort-desc');
-    if (th.dataset.sort === state.sortField) th.classList.add(state.sortAsc ? 'sort-asc' : 'sort-desc');
-  });
-
-  if (docs.length === 0) {
-    tbody.innerHTML = '';
-    table.style.display = 'none';
-    empty.style.display = '';
-    return;
-  }
-  table.style.display = '';
+  document.getElementById('docCount').textContent = docs.length + ' 篇';
+  if (docs.length === 0) { list.innerHTML = ''; empty.style.display = ''; return; }
   empty.style.display = 'none';
-
-  tbody.innerHTML = docs.map(d => {
+  list.innerHTML = docs.map(d => {
     const name = (d.path || '').split('/').pop();
-    const statusClass = d.kb_doc_id ? 'bg-success dot-glow-success' : (d.sync_to_kb ? 'bg-primary' : 'bg-base-300');
+    const statusClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
     const isActive = state.currentDoc && state.currentDoc.path === d.path;
-    return `<tr class="cursor-pointer transition-colors hover:bg-base-200 ${isActive ? 'bg-primary/10' : ''}"
-               onclick="selectDoc('${escapeAttr(d.path)}')">
-      <td class="text-center">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-               ${d.sync_to_kb ? 'checked' : ''}
-               onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)">
-      </td>
-      <td class="text-center">
-        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-               ${d.pre_chunk !== false ? 'checked' : ''}
-               onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)">
-      </td>
-      <td>
-        <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full shrink-0 ${statusClass}"></span>
-          <span class="truncate font-medium" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span>
-        </div>
-      </td>
-      <td class="text-base-content/60 text-xs tabular-nums whitespace-nowrap">${formatSize(d.size_kb)}</td>
-      <td class="text-base-content/60 text-xs tabular-nums whitespace-nowrap">${formatTime(d.last_sync || d.staged_at)}</td>
-    </tr>`;
+    return `<li class="doc-item ${isActive ? 'active' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
+      <span class="doc-status ${statusClass}" title="${d.kb_doc_id ? '已同步' : (d.sync_to_kb ? '待同步' : '未选择')}"></span>
+      <span class="doc-name" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span>
+      <span class="doc-meta">${formatSize(d.size_kb)}</span>
+    </li>`;
   }).join('');
-}
-
-function sortBy(field) {
-  if (state.sortField === field) { state.sortAsc = !state.sortAsc; }
-  else { state.sortField = field; state.sortAsc = true; }
-  renderDocuments();
 }
 
 function onSearch() {
@@ -530,104 +616,36 @@ function onSearch() {
   renderDocuments();
 }
 
-/* ===== Metadata Toggle ===== */
-async function toggleMeta(path, field, value) {
-  try {
-    const doc = state.documents.find(d => d.path === path);
-    if (!doc) return;
-    const body = { path };
-    body.sync_to_kb = field === 'sync_to_kb' ? value : doc.sync_to_kb;
-    body.pre_chunk = field === 'pre_chunk' ? value : (doc.pre_chunk !== false);
-    await api('api/metadata', { method: 'POST', body: JSON.stringify(body) });
-    doc.sync_to_kb = body.sync_to_kb;
-    doc.pre_chunk = body.pre_chunk;
-    renderDocuments();
-    loadStatus();
-    toast(`${field === 'sync_to_kb' ? '同步' : '预切块'}已${value ? '开启' : '关闭'}`, 'success');
-  } catch (e) {
-    toast('更新元数据失败: ' + e.message, 'error');
-    loadDocuments();
-  }
-}
-
-/* ===== Batch Operations ===== */
-async function batchSetSync(val) {
-  const docs = getFilteredDocs();
-  const paths = docs.map(d => d.path);
-  if (paths.length === 0) return;
-  try {
-    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: val } }) });
-    docs.forEach(d => d.sync_to_kb = val);
-    renderDocuments(); loadStatus();
-    toast(`已批量${val ? '开启' : '关闭'}同步 (${paths.length} 篇)`, 'success');
-  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
-}
-
-async function batchSetChunk(val) {
-  const docs = getFilteredDocs();
-  const paths = docs.map(d => d.path);
-  if (paths.length === 0) return;
-  try {
-    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { pre_chunk: val } }) });
-    docs.forEach(d => d.pre_chunk = val);
-    renderDocuments(); loadStatus();
-    toast(`已批量${val ? '开启' : '关闭'}预切块 (${paths.length} 篇)`, 'success');
-  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
-}
-
-async function batchClear() {
-  const docs = getFilteredDocs();
-  const paths = docs.map(d => d.path);
-  if (paths.length === 0) return;
-  try {
-    await api('api/metadata/batch', { method: 'POST', body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } }) });
-    docs.forEach(d => { d.sync_to_kb = false; d.pre_chunk = false; });
-    renderDocuments(); loadStatus();
-    toast(`已取消全部选择 (${paths.length} 篇)`, 'success');
-  } catch (e) { toast('批量操作失败: ' + e.message, 'error'); }
-}
-
 /* ===== Document Viewer ===== */
 async function selectDoc(path) {
-  if (state.editing) {
-    if (!confirm('当前正在编辑，是否放弃修改？')) return;
-    state.editing = false;
-  }
+  if (state.editing) { if (!confirm('正在编辑，放弃修改？')) return; state.editing = false; }
   const doc = state.documents.find(d => d.path === path);
   if (!doc) return;
   state.currentDoc = doc;
   renderDocuments();
-
   const name = (doc.path || '').split('/').pop();
   document.getElementById('viewerTitle').innerHTML = `<span>📄</span> ${escapeHtml(name)}`;
   document.getElementById('viewerActions').style.display = '';
-
   const content = document.getElementById('viewerContent');
-  content.innerHTML = '<div class="flex items-center justify-center h-full"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
-
+  content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="loading loading-spinner loading-lg text-primary"></span></div>';
   try {
-    const data = await api('api/document', { params: { path: path } });
+    const data = await api('api/document', { params: { path } });
     state.originalContent = data.content || '';
     renderMarkdown(state.originalContent);
   } catch (e) {
-    content.innerHTML = `<div class="flex flex-col items-center justify-center h-full gap-3 text-base-content/40">
-      <span class="text-5xl">❌</span>
-      <span class="text-sm">加载失败: ${escapeHtml(e.message)}</span>
-    </div>`;
+    content.innerHTML = `<div class="empty-state"><span style="font-size:2.5rem;">❌</span><span style="font-size:0.82rem;">加载失败: ${escapeHtml(e.message)}</span></div>`;
   }
 }
 
 function renderMarkdown(text) {
-  const content = document.getElementById('viewerContent');
-  content.innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
+  document.getElementById('viewerContent').innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
   postRenderLinks();
 }
 
-/* ===== Markdown Renderer ===== */
 function mdToHtml(md) {
   if (!md) return '';
   let html = escapeHtml(md);
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code class="lang-${lang}">${code}</code></pre>`);
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
   html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -639,7 +657,7 @@ function mdToHtml(md) {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img cursor-pointer text-primary underline" data-url="$2">[image: $1]</span>');
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
   html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
@@ -659,9 +677,8 @@ function postRenderLinks() {
     const url = el.getAttribute('data-url');
     const alt = el.textContent.replace(/\[image: |\]/g, '');
     const img = document.createElement('img');
-    img.src = url;
-    img.alt = alt;
-    img.className = 'max-w-full rounded-xl shadow-md my-3';
+    img.src = url; img.alt = alt;
+    img.style.cssText = 'max-width:100%;border-radius:10px;margin:0.5rem 0;';
     el.replaceWith(img);
   });
 }
@@ -669,13 +686,11 @@ function postRenderLinks() {
 /* ===== Edit Mode ===== */
 function toggleEdit() {
   state.editing = true;
-  const content = document.getElementById('viewerContent');
-  content.innerHTML = `<textarea class="editor-textarea" id="editorArea">${escapeHtml(state.originalContent)}</textarea>`;
+  document.getElementById('viewerContent').innerHTML = `<textarea class="editor-textarea" id="editorArea">${escapeHtml(state.originalContent)}</textarea>`;
   document.getElementById('btnEdit').style.display = 'none';
   document.getElementById('btnSave').style.display = '';
   document.getElementById('btnCancel').style.display = '';
 }
-
 function cancelEdit() {
   state.editing = false;
   renderMarkdown(state.originalContent);
@@ -683,119 +698,73 @@ function cancelEdit() {
   document.getElementById('btnSave').style.display = 'none';
   document.getElementById('btnCancel').style.display = 'none';
 }
-
 async function saveDoc() {
-  const textarea = document.getElementById('editorArea');
-  if (!textarea) return;
-  const newContent = textarea.value;
+  const ta = document.getElementById('editorArea');
+  if (!ta) return;
   try {
-    await api('api/document', { method: 'POST', body: JSON.stringify({ path: state.currentDoc.path, content: newContent }) });
-    state.originalContent = newContent;
-    state.editing = false;
-    renderMarkdown(newContent);
+    await api('api/document', { method: 'POST', body: JSON.stringify({ path: state.currentDoc.path, content: ta.value }) });
+    state.originalContent = ta.value; state.editing = false;
+    renderMarkdown(ta.value);
     document.getElementById('btnEdit').style.display = '';
     document.getElementById('btnSave').style.display = 'none';
     document.getElementById('btnCancel').style.display = 'none';
     toast('文档已保存', 'success');
-  } catch (e) {
-    toast('保存失败: ' + e.message, 'error');
-  }
+  } catch (e) { toast('保存失败: ' + e.message, 'error'); }
 }
 
-/* ===== Sync Operations ===== */
+/* ===== Sync ===== */
 async function syncFns() {
   const btn = document.getElementById('btnSyncFns');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
+  btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
   try {
     const data = await api('api/sync/fns', { method: 'POST' });
     if (data.error) { toast('FNS 同步失败: ' + data.error, 'error'); return; }
     state.lastFnsSync = Date.now() / 1000;
-    toast(`FNS 同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}, 未变 ${data.unchanged || 0}`, 'success');
+    toast(`FNS 同步完成: 新增 ${data.new||0}, 更新 ${data.updated||0}, 未变 ${data.unchanged||0}`, 'success');
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
-  } catch (e) {
-    toast('FNS 同步失败: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '📥 从 FNS 同步';
-  }
+  } catch (e) { toast('FNS 同步失败: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = '📥 从 FNS 同步'; }
 }
-
 async function syncKb() {
   const btn = document.getElementById('btnSyncKb');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
+  btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
   try {
     const data = await api('api/sync/kb', { method: 'POST' });
     if (data.error) { toast('知识库同步失败: ' + data.error, 'error'); return; }
     state.lastKbSync = Date.now() / 1000;
-    toast(`知识库同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}${data.errors ? `, 失败 ${data.errors} 篇` : ''}`, data.errors ? 'warning' : 'success');
-    await loadStatus();
-    await loadDocuments();
-  } catch (e) {
-    toast('知识库同步失败: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '📤 同步到知识库';
-  }
+    toast(`知识库同步完成: 新增 ${data.new||0}, 更新 ${data.updated||0}${data.errors ? ', 失败 '+data.errors+' 篇' : ''}`, data.errors ? 'warning' : 'success');
+    await Promise.all([loadStatus(), loadDocuments()]);
+  } catch (e) { toast('知识库同步失败: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = '📤 同步到知识库'; }
 }
 
 /* ===== Utilities ===== */
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function escapeAttr(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+function escapeAttr(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
 
 /* ===== Init ===== */
 async function init() {
   if (isBridge()) {
-    try {
-      await Promise.race([
-        bridge.ready(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('bridge ready timeout')), 3000))
-      ]);
-    } catch (e) {
-      console.warn('bridge.ready():', e.message);
-    }
+    try { await Promise.race([bridge.ready(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))]); }
+    catch (e) { console.warn('bridge.ready():', e.message); }
   }
-
   initTheme();
-
   if (isBridge()) {
-    bridge.onContext((ctx) => {
+    bridge.onContext(ctx => {
       if (ctx && ctx.isDark !== undefined) {
         document.documentElement.setAttribute('data-theme', ctx.isDark ? 'dark' : 'light');
         document.getElementById('themeToggle').checked = ctx.isDark;
       }
     });
   }
-
   await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
   setInterval(loadStatus, 30000);
 }
 
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveDoc(); }
-});
-
-init().catch(e => {
-  console.error('Init failed:', e);
-  toast('初始化失败: ' + e.message, 'error');
-});
-
-window.onerror = function(msg, url, line, col, error) {
-  console.error('Global error:', msg, url, line, col, error);
-  toast(`JS Error: ${msg} (line ${line})`, 'error');
-};
-window.addEventListener('unhandledrejection', function(e) {
-  console.error('Unhandled rejection:', e.reason);
-  toast('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
-});
+document.addEventListener('keydown', e => { if ((e.ctrlKey||e.metaKey) && e.key==='s') { e.preventDefault(); saveDoc(); } });
+init().catch(e => { console.error('Init failed:', e); toast('初始化失败: ' + e.message, 'error'); });
+window.onerror = (msg, url, line) => { console.error('Global error:', msg, url, line); toast(`JS Error: ${msg} (line ${line})`, 'error'); };
+window.addEventListener('unhandledrejection', e => { console.error('Unhandled rejection:', e.reason); toast('Promise Error: ' + (e.reason?.message||e.reason||'unknown'), 'error'); });
 </script>
 </body>
 </html>
