@@ -482,63 +482,72 @@ function _getFilesInNode(node) {
 
 function _buildTree(node, prefix, depth) {
   let html = '';
+  const indent = depth * 16;
+  const q = state.searchQuery.toLowerCase();
 
-  // Render child folders
+  // Collect child folders
+  const folders = [];
   for (const [name, child] of Object.entries(node)) {
-    if (name === '__files__') continue;
+    if (name !== '__files__') folders.push([name, child]);
+  }
+
+  // Process each child folder
+  for (const [name, child] of folders) {
     const fullPath = prefix ? `${prefix}/${name}` : name;
     const fileCount = countFiles(child);
     const hasSubfolders = Object.keys(child).some(k => k !== '__files__');
-    const hasFiles = (child.__files__ || []).length > 0;
-    const isLeaf = !hasSubfolders;
     const isExpanded = state.expandedFolders.has(fullPath);
-    const indent = depth * 16;
 
+    // Folder row
     html += `<li>
       <div class="tree-folder" style="padding-left:${8 + indent}px"
            onclick="toggleFolder('${esc(fullPath)}')">
-        <span class="chevron ${isLeaf ? 'leaf' : (isExpanded ? 'open' : '')}">▶</span>
+        <span class="chevron ${hasSubfolders ? (isExpanded ? 'open' : '') : 'leaf'}">▶</span>
         <span class="icon">${isExpanded ? '📂' : '📁'}</span>
         <span class="name" title="${esc(fullPath)}">${esc(name)}</span>
         <span class="badge">${fileCount}</span>
       </div>`;
 
-    if (!isLeaf) {
-      html += `<ul class="tree-children ${isExpanded ? '' : 'collapsed'}"
-                   style="${isExpanded ? '' : 'max-height:0'}">`;
-      // Sub-folders first, then files
-      html += _buildTree(child, fullPath, depth + 1);
-      html += '</ul>';
-    }
+    // Children container: files + subfolders, all inside one <ul>
+    const hasFiles = (child.__files__ || []).length > 0;
+    if (hasSubfolders || hasFiles) {
+      const showContent = hasSubfolders ? isExpanded : true; // leaf folders always show files
+      html += `<ul class="tree-children ${showContent ? '' : 'collapsed'}"
+                   style="${showContent ? '' : 'max-height:0'}">`;
 
-    // Files directly under this folder (only if expanded and has files)
-    if (hasFiles && (isLeaf || isExpanded)) {
-      const files = _getFilesInNode(child);
-      const q = state.searchQuery.toLowerCase();
-      const filtered = q ? files.filter(d => (d.path||'').toLowerCase().includes(q)) : files;
-      filtered.forEach(d => {
-        const docName = (d.path || '').split('/').pop();
-        const dotClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
-        const isActive = state.currentDoc && state.currentDoc.path === d.path;
-        const fIndent = (depth + 1) * 16;
-        html += `<li>
-          <div class="tree-file ${isActive ? 'active' : ''}" style="padding-left:${8 + fIndent}px"
-               onclick="selectDoc('${esc(d.path)}')">
-            <span class="dot ${dotClass}"></span>
-            <span class="name" title="${esc(d.path)}">${esc(docName)}</span>
-            <span class="size">${fmtSize(d.size_kb)}</span>
-          </div>
-        </li>`;
-      });
+      // Files first
+      if (hasFiles) {
+        const files = _getFilesInNode(child);
+        const filtered = q ? files.filter(d => (d.path||'').toLowerCase().includes(q)) : files;
+        filtered.forEach(d => {
+          const docName = (d.path || '').split('/').pop();
+          const dotClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
+          const isActive = state.currentDoc && state.currentDoc.path === d.path;
+          html += `<li>
+            <div class="tree-file ${isActive ? 'active' : ''}" style="padding-left:${8 + (depth+1)*16}px"
+                 onclick="selectDoc('${esc(d.path)}')">
+              <span class="dot ${dotClass}"></span>
+              <span class="name" title="${esc(d.path)}">${esc(docName)}</span>
+              <span class="size">${fmtSize(d.size_kb)}</span>
+            </div>
+          </li>`;
+        });
+      }
+
+      // Then subfolders (recursive)
+      if (hasSubfolders) {
+        html += _buildTree(child, fullPath, depth + 1);
+      }
+
+      html += '</ul>';
     }
 
     html += '</li>';
   }
 
-  // Root-level files (__files__)
-  if (prefix === '' && node.__files__ && node.__files__.length > 0) {
+  // Root-level files
+  if (depth === 0 && node.__files__ && node.__files__.length > 0) {
     const files = _getFilesInNode(node);
-    const q = state.searchQuery.toLowerCase();
     const filtered = q ? files.filter(d => (d.path||'').toLowerCase().includes(q)) : files;
     filtered.forEach(d => {
       const docName = (d.path || '').split('/').pop();
