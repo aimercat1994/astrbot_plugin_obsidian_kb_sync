@@ -6,6 +6,10 @@
 <title>Obsidian 暂存区</title>
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css" id="hljs-light">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css" id="hljs-dark" disabled>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
 <style>
 html, body { height: 100%; overflow: hidden; margin: 0; }
 body {
@@ -193,36 +197,76 @@ body {
 .viewer-actions { display: flex; gap: 6px; }
 .viewer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
 
-/* ===== Markdown ===== */
-.md-render { font-size: 0.9rem; line-height: 1.8; }
-.md-render h1 { font-size: 1.5rem; font-weight: 700; margin: 1.2rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent); }
-.md-render h2 { font-size: 1.3rem; font-weight: 700; margin: 1rem 0 0.4rem; color: var(--color-primary); }
-.md-render h3 { font-size: 1.1rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
-.md-render h4 { font-size: 1rem; font-weight: 600; margin: 0.6rem 0 0.2rem; }
+/* Markdown Render - Enhanced */
+.md-render {
+  font-size: 0.9rem; line-height: 1.8; color: var(--color-base-content);
+  word-wrap: break-word; overflow-wrap: break-word;
+}
+.md-render h1 { font-size: 1.6rem; font-weight: 700; margin: 1.5rem 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent); }
+.md-render h2 { font-size: 1.35rem; font-weight: 700; margin: 1.3rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.md-render h3 { font-size: 1.15rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.md-render h4 { font-size: 1rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.md-render h5, .md-render h6 { font-size: 0.9rem; font-weight: 600; margin: 0.6rem 0 0.2rem; color: var(--color-base-content); opacity: 0.8; }
+.md-render h1, .md-render h2, .md-render h3, .md-render h4, .md-render h5, .md-render h6 {
+  scroll-margin-top: 16px; /* TOC 跳转偏移 */
+}
+.md-render p { margin: 0.5rem 0; }
 .md-render pre {
   background: var(--color-base-200); padding: 14px 16px;
   border-radius: 10px; overflow-x: auto; font-size: 0.82rem;
-  border: 1px solid var(--color-base-300);
+  border: 1px solid var(--color-base-300); position: relative;
 }
-.md-render code { font-size: 0.85em; }
+.md-render pre code { background: none; padding: 0; border-radius: 0; color: inherit; }
+.md-render code { font-size: 0.85em; font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace; }
 .md-render :not(pre) > code {
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary); padding: 2px 5px; border-radius: 4px;
+  color: var(--color-primary); padding: 2px 6px; border-radius: 4px;
+  font-size: 0.85em;
 }
 .md-render blockquote {
-  border-left: 3px solid var(--color-primary);
-  padding: 8px 16px; margin: 0.8rem 0;
+  border-left: 4px solid var(--color-primary);
+  padding: 10px 16px; margin: 0.8rem 0;
   background: color-mix(in srgb, var(--color-primary) 5%, transparent);
-  border-radius: 0 6px 6px 0; font-style: italic;
+  border-radius: 0 8px 8px 0; color: var(--color-base-content); opacity: 0.9;
 }
-.md-render img { max-width: 100%; border-radius: 10px; margin: 0.5rem 0; }
-.md-render ul, .md-render ol { padding-left: 1.5rem; }
-.md-render li { margin-bottom: 0.2rem; }
-.md-render hr { border: none; border-top: 2px solid color-mix(in srgb, var(--color-primary) 10%, transparent); margin: 1rem 0; }
-.md-render a { color: var(--color-primary); }
+.md-render blockquote p { margin: 0.2rem 0; }
+.md-render img { max-width: 100%; border-radius: 10px; margin: 0.5rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.md-render ul, .md-render ol { padding-left: 1.8rem; margin: 0.5rem 0; }
+.md-render li { margin-bottom: 0.3rem; }
+.md-render li > ul, .md-render li > ol { margin: 0.2rem 0; }
+.md-render hr { border: none; border-top: 2px solid color-mix(in srgb, var(--color-primary) 10%, transparent); margin: 1.5rem 0; }
+.md-render a { color: var(--color-primary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--color-primary) 30%, transparent); text-underline-offset: 3px; }
+.md-render a:hover { text-decoration-color: var(--color-primary); }
 .md-render table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.85rem; }
 .md-render th, .md-render td { padding: 8px 12px; border: 1px solid var(--color-base-300); }
-.md-render th { background: color-mix(in srgb, var(--color-primary) 10%, transparent); font-weight: 600; text-align: left; }
+.md-render th { background: color-mix(in srgb, var(--color-primary) 8%, transparent); font-weight: 600; text-align: left; }
+.md-render tr:hover { background: color-mix(in srgb, var(--color-primary) 3%, transparent); }
+.md-render .task-list-item { list-style: none; margin-left: -1.5rem; }
+.md-render .task-list-item input { margin-right: 0.5rem; accent-color: var(--color-primary); }
+.md-render del { opacity: 0.5; text-decoration: line-through; }
+.md-render mark { background: color-mix(in srgb, var(--color-warning) 30%, transparent); padding: 1px 4px; border-radius: 3px; }
+
+/* TOC */
+.toc-panel {
+  width: 220px; flex-shrink: 0; overflow-y: auto; padding: 12px 14px;
+  border-left: 1px solid var(--color-base-300); background: var(--color-base-100);
+  font-size: 0.78rem; display: none;
+}
+.toc-panel.visible { display: block; }
+.toc-title { font-size: 0.75rem; font-weight: 700; color: var(--color-base-content); opacity: 0.5; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.toc-list { list-style: none; padding: 0; margin: 0; }
+.toc-list li { margin-bottom: 2px; }
+.toc-list a {
+  display: block; padding: 3px 8px; border-radius: 4px; color: var(--color-base-content);
+  text-decoration: none; opacity: 0.65; transition: all 0.15s; cursor: pointer;
+  border-left: 2px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.toc-list a:hover { opacity: 1; background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.toc-list a.active { opacity: 1; color: var(--color-primary); font-weight: 600; border-left-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.toc-list .toc-h1 { padding-left: 8px; font-weight: 600; }
+.toc-list .toc-h2 { padding-left: 18px; }
+.toc-list .toc-h3 { padding-left: 28px; font-size: 0.75rem; }
+.toc-list .toc-h4, .toc-list .toc-h5, .toc-list .toc-h6 { padding-left: 38px; font-size: 0.73rem; opacity: 0.5; }
 
 /* Editor */
 .editor-textarea {
@@ -356,6 +400,12 @@ body {
     </div>
   </div>
 
+  <!-- TOC Panel -->
+  <aside class="toc-panel" id="tocPanel">
+    <div class="toc-title">📑 目录</div>
+    <ul class="toc-list" id="tocList"></ul>
+  </aside>
+
 </div>
 
 <!-- Bottom Bar -->
@@ -440,10 +490,16 @@ function initTheme() {
   else { try { isDark = localStorage.getItem('staging-theme') === 'dark'; } catch (e) {} }
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
   document.getElementById('themeToggle').checked = isDark;
+  // Switch highlight.js theme
+  document.getElementById('hljs-light').disabled = isDark;
+  document.getElementById('hljs-dark').disabled = !isDark;
 }
 function toggleTheme() {
   const isDark = document.getElementById('themeToggle').checked;
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  // Switch highlight.js theme
+  document.getElementById('hljs-light').disabled = isDark;
+  document.getElementById('hljs-dark').disabled = !isDark;
   try { localStorage.setItem('staging-theme', isDark ? 'dark' : 'light'); } catch (e) {}
 }
 
@@ -720,45 +776,81 @@ async function selectDoc(path) {
 function renderMarkdown(text) {
   document.getElementById('viewerContent').innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
   postRender();
+  buildToc();
 }
 
 function mdToHtml(md) {
   if (!md) return '';
-  let h = esc(md);
-  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
-  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  h = h.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  h = h.replace(/^---+$/gm, '<hr>');
-  h = h.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  h = h.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
-  h = h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-url="$2">[image: $1]</span>');
-  h = h.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-  h = h.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  h = h.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  h = h.replace(/\n\n+/g, '</p><p>');
-  h = h.replace(/\n/g, '<br>');
-  if (!h.startsWith('<')) h = '<p>' + h + '</p>';
-  h = h.replace(/<p>\s*<\/p>/g, '');
-  return h;
+  // Configure marked
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    highlight: function(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(code, { language: lang }).value;
+      }
+      return hljs.highlightAuto(code).value;
+    }
+  });
+  return marked.parse(md);
+}
+
+function buildToc() {
+  const tocPanel = document.getElementById('tocPanel');
+  const tocList = document.getElementById('tocList');
+  const viewer = document.getElementById('viewerContent');
+  const headings = viewer.querySelectorAll('h1, h2, h3, h4, h5, h6');
+
+  if (headings.length < 2) {
+    tocPanel.classList.remove('visible');
+    tocList.innerHTML = '';
+    return;
+  }
+
+  tocPanel.classList.add('visible');
+  tocList.innerHTML = '';
+
+  headings.forEach((h, i) => {
+    const id = `heading-${i}`;
+    h.id = id;
+    const level = parseInt(h.tagName[1]);
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.className = `toc-h${level}`;
+    a.textContent = h.textContent;
+    a.dataset.target = id;
+    a.onclick = () => {
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Update active state
+      tocList.querySelectorAll('a').forEach(el => el.classList.remove('active'));
+      a.classList.add('active');
+    };
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+
+  // Scroll spy
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        tocList.querySelectorAll('a').forEach(a => {
+          a.classList.toggle('active', a.dataset.target === id);
+        });
+      }
+    });
+  }, { root: viewer, rootMargin: '-10% 0px -80% 0px' });
+
+  headings.forEach(h => observer.observe(h));
 }
 
 function postRender() {
-  document.querySelectorAll('.md-link[data-href]').forEach(el => {
-    el.setAttribute('href', el.getAttribute('data-href'));
-    el.removeAttribute('data-href');
-  });
-  document.querySelectorAll('.md-img[data-url]').forEach(el => {
-    const img = document.createElement('img');
-    img.src = el.getAttribute('data-url');
-    img.alt = el.textContent.replace(/\[image: |\]/g, '');
-    img.style.cssText = 'max-width:100%;border-radius:10px;margin:0.5rem 0;';
-    el.replaceWith(img);
+  // Marked already handles links and images, just add target="_blank" to links
+  document.querySelectorAll('.md-render a').forEach(el => {
+    if (!el.getAttribute('target')) {
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener');
+    }
   });
 }
 
@@ -769,6 +861,7 @@ function toggleEdit() {
   document.getElementById('btnEdit').style.display = 'none';
   document.getElementById('btnSave').style.display = '';
   document.getElementById('btnCancel').style.display = '';
+  document.getElementById('tocPanel').classList.remove('visible');
 }
 function cancelEdit() {
   state.editing = false;
