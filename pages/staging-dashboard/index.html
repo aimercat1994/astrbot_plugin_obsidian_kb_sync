@@ -481,6 +481,10 @@ function _renderTree(node, prefix, depth) {
       <span>${hasChildren ? '📁' : '📂'}</span><span title="${escapeAttr(fullPath)}">${escapeHtml(name)}</span>
       <span class="folder-count">${count}</span>
     </div>`;
+    // 递归渲染子文件夹
+    if (hasChildren) {
+      html += _renderTree(child, fullPath, depth + 1);
+    }
   }
   return html;
 }
