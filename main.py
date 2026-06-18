@@ -802,12 +802,13 @@ class Dashboard:
 
     def __init__(self, staging: StagingManager, sync_engine: SyncEngine,
                  fns_client_factory, exclude_patterns: list[str],
-                 port: int = 6190):
+                 port: int = 6190, plugin=None):
         self.staging = staging
         self.sync_engine = sync_engine
         self.fns_client_factory = fns_client_factory
         self.exclude_patterns = exclude_patterns
         self.port = port
+        self._plugin = plugin
         self.app = Quart(__name__)
         self._server_task: Optional[asyncio.Task] = None
         self._setup_routes()
@@ -902,6 +903,14 @@ class Dashboard:
         async def api_status():
             return jsonify(self.staging.get_stats())
 
+        @app.route("/api/config")
+        async def api_config():
+            return await self._plugin.webui_api_config()
+
+        @app.route("/api/config/save", methods=["POST"])
+        async def api_config_save():
+            return await self._plugin.webui_api_config_save()
+
     async def start(self):
         """在后台 asyncio task 中启动 Quart 服务器。"""
         self._server_task = asyncio.create_task(
@@ -979,6 +988,7 @@ class ObsidianKBStagingPlugin(Star):
             fns_client_factory=self._make_fns_client,
             exclude_patterns=self.exclude_patterns,
             port=self.dashboard_port,
+            plugin=self,
         )
 
         # 状态
