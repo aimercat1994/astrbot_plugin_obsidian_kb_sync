@@ -313,6 +313,7 @@ button.sm { padding: 4px 10px; font-size: 0.8rem; }
 /* ===== State ===== */
 let state = {
   folders: [],
+  folderTree: null,  // 保留树结构用于递归渲染
   documents: [],
   currentFolder: null,
   currentDoc: null,
@@ -451,23 +452,7 @@ function formatSize(kb) {
 async function loadFolders() {
   try {
     const tree = await api('api/folders');
-    const folders = [];
-    function walk(node, prefix) {
-      for (const [name, child] of Object.entries(node)) {
-        if (name === '__files__') continue;
-        const fullPath = prefix ? `${prefix}/${name}` : name;
-        const fileCount = (child.__files__ || []).length;
-        let totalCount = fileCount;
-        for (const [subName, subChild] of Object.entries(child)) {
-          if (subName === '__files__') continue;
-          totalCount += (subChild.__files__ || []).length;
-        }
-        folders.push({ name, path: fullPath, count: totalCount });
-        walk(child, fullPath);
-      }
-    }
-    walk(tree, '');
-    state.folders = folders;
+    state.folderTree = tree;  // 保留树结构
     renderFolders();
   } catch (e) {
     console.error('Folders load failed:', e);
@@ -475,19 +460,40 @@ async function loadFolders() {
   }
 }
 
+function _countFiles(node) {
+  let count = (node.__files__ || []).length;
+  for (const [k, v] of Object.entries(node)) {
+    if (k !== '__files__') count += _countFiles(v);
+  }
+  return count;
+}
+
+function _renderTree(node, prefix, depth) {
+  let html = '';
+  for (const [name, child] of Object.entries(node)) {
+    if (name === '__files__') continue;
+    const fullPath = prefix ? `${prefix}/${name}` : name;
+    const count = _countFiles(child);
+    const isActive = state.currentFolder === fullPath;
+    const hasChildren = Object.keys(child).some(k => k !== '__files__');
+    const indent = depth * 16;
+    html += `<div class="folder-item ${isActive ? 'active' : ''}" style="padding-left:${12 + indent}px" onclick="selectFolder('${escapeAttr(fullPath)}')">
+      <span>${hasChildren ? '📁' : '📂'}</span><span title="${escapeAttr(fullPath)}">${escapeHtml(name)}</span>
+      <span class="folder-count">${count}</span>
+    </div>`;
+  }
+  return html;
+}
+
 function renderFolders() {
   const container = document.getElementById('folderList');
-  const totalCount = state.folders.reduce((s, f) => s + (f.count || 0), 0);
+  const totalCount = state.folderTree ? _countFiles(state.folderTree) : state.folders.reduce((s, f) => s + (f.count || 0), 0);
   let html = `<div class="folder-item ${state.currentFolder === null ? 'active' : ''}" onclick="selectFolder(null)">
     <span>📋</span><span>全部</span><span class="folder-count">${totalCount}</span>
   </div>`;
-  state.folders.forEach(f => {
-    const isActive = state.currentFolder === f.path;
-    html += `<div class="folder-item ${isActive ? 'active' : ''}" onclick="selectFolder('${escapeAttr(f.path)}')">
-      <span>📂</span><span title="${escapeAttr(f.path)}">${escapeHtml(f.name)}</span>
-      <span class="folder-count">${f.count || 0}</span>
-    </div>`;
-  });
+  if (state.folderTree) {
+    html += _renderTree(state.folderTree, '', 0);
+  }
   container.innerHTML = html;
 }
 
