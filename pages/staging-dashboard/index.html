@@ -452,9 +452,7 @@ function fmtSize(kb) {
 async function loadFolders() {
   try {
     state.folderTree = await api('api/folders');
-    for (const key of Object.keys(state.folderTree)) {
-      if (key !== '__files__') state.expandedFolders.add(key);
-    }
+    // 默认全部收起，不自动展开
   } catch (e) { console.error('Folders:', e); toast('加载文件夹失败', 'error'); }
 }
 
