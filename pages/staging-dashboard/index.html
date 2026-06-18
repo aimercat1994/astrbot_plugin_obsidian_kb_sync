@@ -498,133 +498,6 @@ body {
   font-size: 0.85em;
   line-height: 1.5;
 }
-.md-render blockquote {
-  border-left: 3px solid var(--primary);
-  padding: 4px 12px;
-  margin: 0.5em 0;
-  color: var(--text-secondary);
-  background: var(--primary-light);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-.md-render hr {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 1em 0;
-}
-.md-render img { max-width: 100%; border-radius: var(--radius-sm); }
-
-/* Editor */
-.editor-textarea {
-  width: 100%;
-  height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 16px 20px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  background: var(--bg-card);
-  color: var(--text);
-}
-.editor-textarea::placeholder { color: var(--text-muted); }
-
-/* ===== Bottom Bar ===== */
-.bottombar {
-  height: 32px;
-  background: var(--bg-bottombar);
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  gap: 16px;
-  flex-shrink: 0;
-}
-
-.bottombar .sep { color: var(--border); }
-
-/* ===== Toast ===== */
-.toast-container {
-  position: fixed;
-  top: 64px;
-  right: 16px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-}
-
-.toast {
-  padding: 10px 16px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  box-shadow: var(--shadow-md);
-  pointer-events: auto;
-  animation: toast-in 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 360px;
-}
-
-.toast.success { background: var(--success); color: #fff; }
-.toast.error { background: var(--error); color: #fff; }
-.toast.info { background: var(--primary); color: #fff; }
-.toast.warning { background: var(--warning); color: #1a1a2e; }
-
-.toast.fade-out { animation: toast-out 0.3s ease forwards; }
-
-@keyframes toast-in {
-  from { opacity: 0; transform: translateX(40px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-@keyframes toast-out {
-  from { opacity: 1; transform: translateX(0); }
-  to { opacity: 0; transform: translateX(40px); }
-}
-
-/* ===== Spinner ===== */
-.spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-.spinner-dark {
-  border-color: var(--border);
-  border-top-color: var(--primary);
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
-
-[data-theme="dark"] .loading-overlay {
-  background: rgba(0,0,0,0.3);
-}
-
-/* ===== Responsive ===== */
-@media (max-width: 900px) {
-  .sidebar { width: 0; border: none; overflow: hidden; }
-  .sidebar.open { width: var(--sidebar-width); border-right: 1px solid var(--border); }
-  .split-view { flex-direction: column; }
-  .doc-list-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
-}
 </style>
 </head>
 <body>
@@ -732,6 +605,12 @@ body {
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- Debug Panel (visible on page) -->
+<div id="debugPanel" style="position:fixed;bottom:40px;left:0;right:0;max-height:150px;overflow-y:auto;background:#1a1a2e;color:#0f0;font:11px monospace;padding:8px;z-index:99999;border-top:2px solid #f00;display:none;"></div>
+
+<!-- Bridge SDK: explicit reference so AstrBot rewrites it with asset_token -->
+<script src="/api/plugin/page/bridge-sdk.js"></script>
+
 <script>
 /* ===== State ===== */
 let state = {
@@ -744,22 +623,93 @@ let state = {
   sortField: 'name',
   sortAsc: true,
   searchQuery: '',
+  lastFnsSync: null,
+  lastKbSync: null,
 };
 
-/* ===== API Helpers ===== */
-async function api(url, opts = {}) {
-  const defaults = { headers: { 'Content-Type': 'application/json' } };
-  const res = await fetch(url, { ...defaults, ...opts });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+/* ===== Debug Logger ===== */
+function debug(msg, type) {
+  const panel = document.getElementById('debugPanel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  const line = document.createElement('div');
+  line.style.color = type === 'error' ? '#f85149' : type === 'warn' ? '#d29922' : '#7ee787';
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  panel.appendChild(line);
+  panel.scrollTop = panel.scrollHeight;
+  if (type === 'error') console.error('[DEBUG]', msg);
+  else console.log('[DEBUG]', msg);
+}
+
+/* ===== Bridge / API Helpers ===== */
+const bridge = window.AstrBotPluginPage;
+
+function isBridge() {
+  return bridge && typeof bridge.apiGet === 'function';
+}
+
+async function api(path, opts = {}) {
+  // path: full API path like "/api/folders", "/api/status", etc.
+  const method = (opts.method || 'GET').toUpperCase();
+
+  if (isBridge()) {
+    // Bridge mode: strip leading "/api/" — bridge auto-prepends /api/plug/<plugin_name>/
+    // So "/api/status" → "api/status" → parent builds /api/plug/<name>/api/status
+    const endpoint = path.replace(/^\//, '');
+    console.log('[Bridge API]', method, endpoint);
+    try {
+      let result;
+      if (method === 'GET') {
+        result = await bridge.apiGet(endpoint, opts.params || {});
+      } else {
+        const body = opts.body
+          ? (typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body)
+          : {};
+        result = await bridge.apiPost(endpoint, body);
+      }
+      console.log('[Bridge API]', endpoint, '→', typeof result, result === null ? 'null' : typeof result === 'object' ? Object.keys(result).slice(0, 5) : result);
+      return result;
+    } catch (err) {
+      console.error('[Bridge API Error]', endpoint, err);
+      throw err;
+    }
+  } else {
+    // Direct fetch mode (standalone Quart on :6190)
+    let url = path;
+    if (opts.params && Object.keys(opts.params).length > 0) {
+      const qs = Object.entries(opts.params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+      url += (url.includes('?') ? '&' : '?') + qs;
+    }
+    const defaults = { headers: { 'Content-Type': 'application/json' } };
+    const res = await fetch(url, { ...defaults, ...opts });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
 }
 
 /* ===== Theme ===== */
 function initTheme() {
-  const saved = localStorage.getItem('staging-theme');
-  if (saved === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    document.querySelector('.theme-toggle').textContent = '☀️';
+  // In bridge mode, theme is managed by parent via data-theme attribute
+  if (isBridge()) {
+    const ctx = bridge.getContext();
+    if (ctx && ctx.isDark !== undefined) {
+      document.documentElement.setAttribute('data-theme', ctx.isDark ? 'dark' : 'light');
+      const btn = document.querySelector('.theme-toggle');
+      if (btn) btn.textContent = ctx.isDark ? '☀️' : '🌙';
+    }
+    // Don't fall through to localStorage - it's not available in sandboxed iframes
+    return;
+  }
+  // Standalone mode: use localStorage (only when not sandboxed)
+  try {
+    const saved = localStorage.getItem('staging-theme');
+    if (saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      const btn = document.querySelector('.theme-toggle');
+      if (btn) btn.textContent = '☀️';
+    }
+  } catch (e) {
+    // localStorage not available (sandboxed iframe without allow-same-origin)
   }
 }
 
@@ -768,11 +718,11 @@ function toggleTheme() {
   if (isDark) {
     document.documentElement.removeAttribute('data-theme');
     document.querySelector('.theme-toggle').textContent = '🌙';
-    localStorage.setItem('staging-theme', 'light');
+    try { localStorage.setItem('staging-theme', 'light'); } catch (e) {}
   } else {
     document.documentElement.setAttribute('data-theme', 'dark');
     document.querySelector('.theme-toggle').textContent = '☀️';
-    localStorage.setItem('staging-theme', 'dark');
+    try { localStorage.setItem('staging-theme', 'dark'); } catch (e) {}
   }
 }
 
@@ -792,18 +742,20 @@ function toast(msg, type = 'info') {
 /* ===== Status Bar ===== */
 async function loadStatus() {
   try {
-    const s = await api('/api/status');
-    document.getElementById('statusTotal').textContent = `共 ${s.total} 篇`;
-    document.getElementById('statusSelected').textContent = `已选 ${s.selected} 篇`;
-    document.getElementById('statusSynced').textContent = `已同步 ${s.synced_to_kb} 篇`;
-    const lastSync = s.last_fns_sync ? formatTime(s.last_fns_sync) : '--';
+    const s = await api('api/status');
+    debug('status: ' + JSON.stringify(s).substring(0, 100));
+    // Backend returns: total_documents, selected_for_sync, synced_to_kb, pre_chunked, total_size_kb
+    document.getElementById('statusTotal').textContent = `共 ${s.total_documents ?? 0} 篇`;
+    document.getElementById('statusSelected').textContent = `已选 ${s.selected_for_sync ?? 0} 篇`;
+    document.getElementById('statusSynced').textContent = `已同步 ${s.synced_to_kb ?? 0} 篇`;
+    const lastSync = state.lastFnsSync ? formatTime(state.lastFnsSync) : '--';
     document.getElementById('statusLastSync').textContent = `上次同步: ${lastSync}`;
 
     // Connection indicators
     const fnsEl = document.getElementById('fnsStatus');
     const kbEl = document.getElementById('kbStatus');
-    fnsEl.className = `status-dot ${s.last_fns_sync ? 'connected' : 'disconnected'}`;
-    kbEl.className = `status-dot ${s.last_kb_sync ? 'connected' : 'disconnected'}`;
+    fnsEl.className = `status-dot ${state.lastFnsSync ? 'connected' : 'disconnected'}`;
+    kbEl.className = `status-dot ${state.lastKbSync ? 'connected' : 'disconnected'}`;
   } catch (e) {
     console.error('Status load failed:', e);
   }
@@ -827,12 +779,34 @@ function formatSize(kb) {
 /* ===== Folders ===== */
 async function loadFolders() {
   try {
-    const data = await api('/api/folders');
-    state.folders = data.folders || [];
+    debug('loadFolders() calling api...');
+    // Backend returns tree object directly (not wrapped in {folders: ...})
+    const tree = await api('api/folders');
+    debug('loadFolders() got: ' + typeof tree + ', keys=' + (tree ? Object.keys(tree).slice(0,5) : 'null'));
+    // Convert tree to flat folder list with counts
+    const folders = [];
+    function walk(node, prefix) {
+      for (const [name, child] of Object.entries(node)) {
+        if (name === '__files__') continue;
+        const fullPath = prefix ? `${prefix}/${name}` : name;
+        const fileCount = (child.__files__ || []).length;
+        // Count files in subfolders too
+        let totalCount = fileCount;
+        for (const [subName, subChild] of Object.entries(child)) {
+          if (subName === '__files__') continue;
+          totalCount += (subChild.__files__ || []).length;
+        }
+        folders.push({ name, path: fullPath, count: totalCount });
+        walk(child, fullPath);
+      }
+    }
+    walk(tree, '');
+    state.folders = folders;
     renderFolders();
   } catch (e) {
     console.error('Folders load failed:', e);
-    toast('加载文件夹失败', 'error');
+    debug('loadFolders error: ' + (e.message || e), 'error');
+    toast('加载文件夹失败: ' + (e.message || JSON.stringify(e) || 'unknown'), 'error');
   }
 }
 
@@ -848,9 +822,9 @@ function renderFolders() {
 
   state.folders.forEach(f => {
     const isActive = state.currentFolder === f.path;
-    html += `<div class="folder-item ${isActive ? 'active' : ''}" onclick="selectFolder('${escapeHtml(f.path)}')">
+    html += `<div class="folder-item ${isActive ? 'active' : ''}" onclick="selectFolder('${escapeAttr(f.path)}')">
       <span class="folder-icon">📂</span>
-      <span class="folder-name" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+      <span class="folder-name" title="${escapeAttr(f.path)}">${escapeHtml(f.name)}</span>
       <span class="folder-count">${f.count || 0}</span>
     </div>`;
   });
@@ -867,15 +841,20 @@ function selectFolder(path) {
 /* ===== Documents ===== */
 async function loadDocuments() {
   try {
-    const url = state.currentFolder
-      ? `/api/documents?folder=${encodeURIComponent(state.currentFolder)}`
-      : '/api/documents';
-    const data = await api(url);
-    state.documents = data.documents || [];
+    const params = {};
+    if (state.currentFolder) {
+      params.folder = state.currentFolder;
+    }
+    debug('loadDocuments() calling api/documents' + (params.folder ? '?folder=' + params.folder : ''));
+    // Backend returns list directly (not wrapped in {documents: ...})
+    const data = await api('api/documents', { params });
+    debug('loadDocuments() got: ' + typeof data + ', isArray=' + Array.isArray(data) + ', len=' + (Array.isArray(data) ? data.length : Object.keys(data||{}).length));
+    state.documents = Array.isArray(data) ? data : (data.documents || []);
     renderDocuments();
   } catch (e) {
     console.error('Documents load failed:', e);
-    toast('加载文档列表失败', 'error');
+    debug('loadDocuments error: ' + (e.message || e), 'error');
+    toast('加载文档列表失败: ' + (e.message || JSON.stringify(e) || 'unknown'), 'error');
   }
 }
 
@@ -884,13 +863,17 @@ function getFilteredDocs() {
 
   if (state.searchQuery) {
     const q = state.searchQuery.toLowerCase();
-    docs = docs.filter(d => d.name.toLowerCase().includes(q) || d.path.toLowerCase().includes(q));
+    docs = docs.filter(d => {
+      const name = (d.path || '').split('/').pop();
+      return name.toLowerCase().includes(q) || (d.path || '').toLowerCase().includes(q);
+    });
   }
 
   const field = state.sortField;
   const asc = state.sortAsc ? 1 : -1;
   docs.sort((a, b) => {
-    let va = a[field], vb = b[field];
+    let va = field === 'name' ? (a.path || '').split('/').pop() : a[field];
+    let vb = field === 'name' ? (b.path || '').split('/').pop() : b[field];
     if (field === 'name') {
       return asc * String(va).localeCompare(String(vb));
     }
@@ -927,12 +910,13 @@ function renderDocuments() {
   empty.style.display = 'none';
 
   tbody.innerHTML = docs.map(d => {
-    const statusClass = d.sync_to_kb ? 'synced' : (d.sync_to_kb || d.pre_chunk ? 'selected' : 'none');
+    const name = (d.path || '').split('/').pop();
+    const statusClass = d.kb_doc_id ? 'synced' : (d.sync_to_kb ? 'selected' : 'none');
     const isActive = state.currentDoc && state.currentDoc.path === d.path;
     return `<tr class="${isActive ? 'selected' : ''}" onclick="selectDoc('${escapeAttr(d.path)}')">
       <td class="cb-cell"><input type="checkbox" ${d.sync_to_kb ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'sync_to_kb', this.checked)"></td>
-      <td class="cb-cell"><input type="checkbox" ${d.pre_chunk ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
-      <td><div class="doc-name"><span class="doc-status-dot ${statusClass}"></span><span class="doc-name-text" title="${escapeAttr(d.path)}">${escapeHtml(d.name)}</span></div></td>
+      <td class="cb-cell"><input type="checkbox" ${d.pre_chunk !== false ? 'checked' : ''} onclick="event.stopPropagation(); toggleMeta('${escapeAttr(d.path)}', 'pre_chunk', this.checked)"></td>
+      <td><div class="doc-name"><span class="doc-status-dot ${statusClass}"></span><span class="doc-name-text" title="${escapeAttr(d.path)}">${escapeHtml(name)}</span></div></td>
       <td class="doc-size">${formatSize(d.size_kb)}</td>
       <td class="doc-date">${formatTime(d.last_sync || d.staged_at)}</td>
     </tr>`;
@@ -957,15 +941,14 @@ function onSearch() {
 /* ===== Metadata Toggle ===== */
 async function toggleMeta(path, field, value) {
   try {
-    // Find current doc to get both fields
     const doc = state.documents.find(d => d.path === path);
     if (!doc) return;
 
     const body = { path };
     body.sync_to_kb = field === 'sync_to_kb' ? value : doc.sync_to_kb;
-    body.pre_chunk = field === 'pre_chunk' ? value : doc.pre_chunk;
+    body.pre_chunk = field === 'pre_chunk' ? value : (doc.pre_chunk !== false);
 
-    await api('/api/metadata', {
+    await api('api/metadata', {
       method: 'POST',
       body: JSON.stringify(body)
     });
@@ -988,7 +971,7 @@ async function batchSetSync(val) {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('/api/metadata/batch', {
+    await api('api/metadata/batch', {
       method: 'POST',
       body: JSON.stringify({ paths, updates: { sync_to_kb: val } })
     });
@@ -1006,7 +989,7 @@ async function batchSetChunk(val) {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('/api/metadata/batch', {
+    await api('api/metadata/batch', {
       method: 'POST',
       body: JSON.stringify({ paths, updates: { pre_chunk: val } })
     });
@@ -1024,7 +1007,7 @@ async function batchClear() {
   const paths = docs.map(d => d.path);
   if (paths.length === 0) return;
   try {
-    await api('/api/metadata/batch', {
+    await api('api/metadata/batch', {
       method: 'POST',
       body: JSON.stringify({ paths, updates: { sync_to_kb: false, pre_chunk: false } })
     });
@@ -1050,14 +1033,16 @@ async function selectDoc(path) {
   state.currentDoc = doc;
   renderDocuments();
 
-  document.getElementById('viewerTitle').textContent = doc.name;
+  const name = (doc.path || '').split('/').pop();
+  document.getElementById('viewerTitle').textContent = name;
   document.getElementById('viewerActions').style.display = '';
 
   const content = document.getElementById('viewerContent');
   content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><span class="spinner spinner-dark"></span></div>';
 
   try {
-    const data = await api(`/api/document?path=${encodeURIComponent(path)}`);
+    // Backend returns {path, content}
+    const data = await api('api/document', { params: { path: path } });
     state.originalContent = data.content || '';
     renderMarkdown(state.originalContent);
   } catch (e) {
@@ -1068,6 +1053,7 @@ async function selectDoc(path) {
 function renderMarkdown(text) {
   const content = document.getElementById('viewerContent');
   content.innerHTML = `<div class="md-render">${mdToHtml(text)}</div>`;
+  postRenderLinks();
 }
 
 /* ===== Basic Markdown Renderer ===== */
@@ -1100,11 +1086,11 @@ function mdToHtml(md) {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Links - use data-href to avoid AstrBot HTML rewriting
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a data-href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
 
-  // Images
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+  // Images - use data-src to avoid AstrBot HTML rewriting corrupting JS
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<span class="md-img" data-alt="$1" data-url="$2">[image: $1]</span>');
 
   // Unordered lists
   html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
@@ -1124,6 +1110,14 @@ function mdToHtml(md) {
   html = html.replace(/<p>\s*<\/p>/g, '');
 
   return html;
+}
+
+/* Post-render: convert data-href/data-src to real attributes after HTML is inserted */
+function postRenderLinks() {
+  document.querySelectorAll('.md-link[data-href]').forEach(el => {
+    el.setAttribute('href', el.getAttribute('data-href'));
+    el.removeAttribute('data-href');
+  });
 }
 
 /* ===== Edit Mode ===== */
@@ -1150,7 +1144,7 @@ async function saveDoc() {
 
   const newContent = textarea.value;
   try {
-    await api('/api/document', {
+    await api('api/document', {
       method: 'POST',
       body: JSON.stringify({ path: state.currentDoc.path, content: newContent })
     });
@@ -1172,8 +1166,13 @@ async function syncFns() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> 同步中...';
   try {
-    const data = await api('/api/sync/fns', { method: 'POST' });
-    toast(`FNS 同步完成: ${data.synced || 0} 篇 (新增 ${data.new || 0}, 更新 ${data.updated || 0})`, 'success');
+    const data = await api('api/sync/fns', { method: 'POST' });
+    if (data.error) {
+      toast('FNS 同步失败: ' + data.error, 'error');
+      return;
+    }
+    state.lastFnsSync = Date.now() / 1000;
+    toast(`FNS 同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}, 未变 ${data.unchanged || 0}`, 'success');
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
   } catch (e) {
     toast('FNS 同步失败: ' + e.message, 'error');
@@ -1188,8 +1187,13 @@ async function syncKb() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> 同步中...';
   try {
-    const data = await api('/api/sync/kb', { method: 'POST' });
-    toast(`知识库同步完成: ${data.synced || 0} 篇${data.errors ? `, 失败 ${data.errors} 篇` : ''}`, data.errors ? 'warning' : 'success');
+    const data = await api('api/sync/kb', { method: 'POST' });
+    if (data.error) {
+      toast('知识库同步失败: ' + data.error, 'error');
+      return;
+    }
+    state.lastKbSync = Date.now() / 1000;
+    toast(`知识库同步完成: 新增 ${data.new || 0}, 更新 ${data.updated || 0}${data.errors ? `, 失败 ${data.errors} 篇` : ''}`, data.errors ? 'warning' : 'success');
     await loadStatus();
     await loadDocuments();
   } catch (e) {
@@ -1213,21 +1217,75 @@ function escapeHtml(str) {
 function escapeAttr(str) {
   if (!str) return '';
   return String(str)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 /* ===== Init ===== */
 async function init() {
+  debug('init() started, isBridge=' + isBridge());
+  // Wait for bridge to be ready (in bridge mode), with timeout fallback
+  if (isBridge()) {
+    try {
+      debug('Waiting for bridge.ready()...');
+      // Race between ready() and a 3s timeout
+      await Promise.race([
+        bridge.ready(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('bridge ready timeout')), 3000))
+      ]);
+      debug('bridge.ready() resolved');
+    } catch (e) {
+      debug('bridge.ready(): ' + e.message + ' - proceeding anyway', 'warn');
+    }
+  }
+
   initTheme();
+  debug('initTheme done');
+
+  // Listen for theme changes from parent (bridge mode)
+  if (isBridge()) {
+    bridge.onContext((ctx) => {
+      if (ctx && ctx.isDark !== undefined) {
+        document.documentElement.setAttribute('data-theme', ctx.isDark ? 'dark' : 'light');
+        const btn = document.querySelector('.theme-toggle');
+        if (btn) btn.textContent = ctx.isDark ? '☀️' : '🌙';
+      }
+    });
+  }
+
+  debug('Loading folders, documents, status...');
   await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
+  debug('All data loaded');
 
   // Auto-refresh status every 30s
   setInterval(loadStatus, 30000);
 }
 
-init();
+// Keyboard shortcut: Ctrl+S to save
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveDoc(); }
+});
+
+init().catch(e => {
+  console.error('Init failed:', e);
+  debug('INIT FAILED: ' + (e.message || e), 'error');
+  toast('初始化失败: ' + e.message, 'error');
+});
+
+// Global error handler - show errors as toast and debug panel
+window.onerror = function(msg, url, line, col, error) {
+  debug('JS Error: ' + msg + ' (line ' + line + ')', 'error');
+  toast(`JS Error: ${msg} (line ${line})`, 'error');
+  console.error('Global error:', msg, url, line, col, error);
+};
+window.addEventListener('unhandledrejection', function(e) {
+  debug('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
+  toast('Promise Error: ' + (e.reason?.message || e.reason || 'unknown'), 'error');
+  console.error('Unhandled rejection:', e.reason);
+});
 </script>
 </body>
 </html>

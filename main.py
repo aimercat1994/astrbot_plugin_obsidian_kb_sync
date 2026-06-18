@@ -1238,11 +1238,152 @@ class ObsidianKBStagingPlugin(Star):
         # 状态
         self._is_syncing = False
         self._last_sync_time: float = 0
+        self._last_fns_sync: float = 0
+        self._last_kb_sync: float = 0
+
+        # 注册 AstrBot WebUI API 路由（通过反向代理访问时使用）
+        self._register_web_api(context)
+
+        # 启动 Dashboard（兼容热重载：on_loaded 仅首次触发，热重载不会重新调用）
+        self._startup_task = asyncio.create_task(self._async_startup())
 
         logger.info(
             f"Staging 插件初始化完成 | FNS: {self.fns_url} | "
             f"Vault: {self.fns_vault} | Dashboard: :{self.dashboard_port}"
         )
+
+    async def _async_startup(self):
+        """异步启动：启动 Dashboard 并执行初始同步。"""
+        try:
+            await self.dashboard.start()
+
+            # 初始 FNS 同步
+            if self.fns_url and self.fns_token and self.fns_vault:
+                logger.info("Staging: 执行初始 FNS 同步...")
+                fns = self._make_fns_client()
+                try:
+                    result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+                    self._last_fns_sync = time.time()
+                    logger.info(
+                        f"Staging: 初始同步完成 | 新增 {result.get('new', 0)}, "
+                        f"更新 {result.get('updated', 0)}, 未变 {result.get('unchanged', 0)}"
+                    )
+                except Exception as e:
+                    logger.error(f"Staging: 初始同步失败: {e}")
+                finally:
+                    await fns.close()
+            else:
+                logger.warning("Staging: FNS 未配置，跳过初始同步")
+        except Exception as e:
+            logger.error(f"Staging: 异步启动失败: {e}")
+
+    def _register_web_api(self, context: Context):
+        """注册 API 路由到 AstrBot WebUI，供反向代理访问。"""
+        if not hasattr(context, "register_web_api"):
+            logger.info("AstrBot 版本不支持 register_web_api，跳过 WebUI 路由注册")
+            return
+
+        plugin_prefix = "/astrbot_plugin_obsidian_kb_sync"
+        routes = [
+            (f"{plugin_prefix}/api/folders",       "webui_api_folders",      ["GET"]),
+            (f"{plugin_prefix}/api/documents",     "webui_api_documents",    ["GET"]),
+            (f"{plugin_prefix}/api/document",      "webui_api_document",     ["GET", "POST"]),
+            (f"{plugin_prefix}/api/metadata",      "webui_api_metadata",     ["POST"]),
+            (f"{plugin_prefix}/api/metadata/batch","webui_api_batch_meta",   ["POST"]),
+            (f"{plugin_prefix}/api/sync/fns",      "webui_api_sync_fns",     ["POST"]),
+            (f"{plugin_prefix}/api/sync/kb",       "webui_api_sync_kb",      ["POST"]),
+            (f"{plugin_prefix}/api/status",        "webui_api_status",       ["GET"]),
+        ]
+        for path, handler_name, methods in routes:
+            handler = getattr(self, handler_name)
+            context.register_web_api(path, handler, methods, f"Staging {handler_name}")
+
+        logger.info(f"Staging: 已注册 {len(routes)} 条 WebUI API 路由")
+
+    # ── WebUI API Handlers ──────────────────────────────────────
+
+    async def webui_api_folders(self, **kwargs):
+        from quart import jsonify
+        return jsonify(self.staging.get_folder_tree())
+
+    async def webui_api_documents(self, **kwargs):
+        from quart import jsonify, request
+        folder = request.args.get("folder", "")
+        docs = self.staging.list_documents(folder if folder else None)
+        return jsonify(docs)
+
+    async def webui_api_document(self, **kwargs):
+        from quart import jsonify, request
+        if request.method == "GET":
+            path = request.args.get("path", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            content = self.staging.get_document(path)
+            if content is None:
+                return jsonify({"error": "not found"}), 404
+            return jsonify({"path": path, "content": content})
+        else:
+            data = await request.get_json()
+            path = data.get("path", "")
+            content = data.get("content", "")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            ok = self.staging.save_document(path, content)
+            if ok:
+                await self.staging.save_metadata()
+            return jsonify({"success": ok})
+
+    async def webui_api_metadata(self, **kwargs):
+        from quart import jsonify, request
+        data = await request.get_json()
+        path = data.get("path", "")
+        if not path:
+            return jsonify({"error": "path required"}), 400
+        updates = {k: v for k, v in data.items() if k != "path"}
+        ok = self.staging.update_metadata(path, updates)
+        if ok:
+            await self.staging.save_metadata()
+        return jsonify({"success": ok})
+
+    async def webui_api_batch_meta(self, **kwargs):
+        from quart import jsonify, request
+        data = await request.get_json()
+        paths = data.get("paths", [])
+        updates = data.get("updates", {})
+        count = 0
+        for p in paths:
+            if self.staging.update_metadata(p, updates):
+                count += 1
+        if count:
+            await self.staging.save_metadata()
+        return jsonify({"updated": count})
+
+    async def webui_api_sync_fns(self, **kwargs):
+        from quart import jsonify
+        if not self.fns_url or not self.fns_token:
+            return jsonify({"error": "FNS 未配置"}), 400
+        fns = self._make_fns_client()
+        try:
+            result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+        finally:
+            await fns.close()
+        if "error" not in result:
+            self._last_fns_sync = time.time()
+        return jsonify(result)
+
+    async def webui_api_sync_kb(self, **kwargs):
+        from quart import jsonify
+        result = await self.sync_engine.sync_to_kb()
+        if "error" not in result:
+            self._last_kb_sync = time.time()
+        return jsonify(result)
+
+    async def webui_api_status(self, **kwargs):
+        from quart import jsonify
+        stats = self.staging.get_stats()
+        stats["last_fns_sync"] = self._last_fns_sync
+        stats["last_kb_sync"] = self._last_kb_sync
+        return jsonify(stats)
 
     def _make_fns_client(self) -> FNSClient:
         """创建 FNSClient 实例。"""
@@ -1256,27 +1397,13 @@ class ObsidianKBStagingPlugin(Star):
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
-        """AstrBot 加载完成后启动 Dashboard 并执行初始同步。"""
-        logger.info("Staging 插件已加载，启动 Dashboard...")
-        # 启动 Dashboard
-        await self.dashboard.start()
-
-        # 初始 FNS 同步
-        if self.fns_url and self.fns_token and self.fns_vault:
-            logger.info("Staging: 执行初始 FNS 同步...")
-            fns = self._make_fns_client()
-            try:
-                result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
-                logger.info(
-                    f"Staging: 初始同步完成 | 新增 {result.get('new', 0)}, "
-                    f"更新 {result.get('updated', 0)}, 未变 {result.get('unchanged', 0)}"
-                )
-            except Exception as e:
-                logger.error(f"Staging: 初始同步失败: {e}")
-            finally:
-                await fns.close()
+        """AstrBot 加载完成回调（Dashboard 已在 __init__ 中启动，这里仅做确认）。"""
+        if self.dashboard._server_task and not self.dashboard._server_task.done():
+            logger.info("Staging: Dashboard 已在启动流程中运行")
         else:
-            logger.warning("Staging: FNS 未配置，跳过初始同步")
+            # 兜底：如果 __init__ 中的 create_task 失败了，在这里重试
+            logger.info("Staging: Dashboard 未运行，尝试启动...")
+            await self.dashboard.start()
 
     # ── 指令 ──────────────────────────────────────────────────
 
@@ -1298,6 +1425,7 @@ class ObsidianKBStagingPlugin(Star):
         try:
             result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
             self._last_sync_time = time.time()
+            self._last_fns_sync = time.time()
 
             if "error" in result:
                 yield event.plain_result(f"❌ 同步失败: {result['error']}")
@@ -1323,6 +1451,7 @@ class ObsidianKBStagingPlugin(Star):
         yield event.plain_result("📤 正在从 Staging 推送到知识库...")
 
         result = await self.sync_engine.sync_to_kb()
+        self._last_kb_sync = time.time()
         if "error" in result:
             yield event.plain_result(f"❌ 推送失败: {result['error']}")
         else:
@@ -1361,6 +1490,8 @@ class ObsidianKBStagingPlugin(Star):
 
     async def terminate(self):
         """插件停止时清理资源。"""
+        if hasattr(self, '_startup_task') and self._startup_task and not self._startup_task.done():
+            self._startup_task.cancel()
         await self.dashboard.stop()
         await self.staging.save_metadata()
         logger.info("Staging 插件已停止")
