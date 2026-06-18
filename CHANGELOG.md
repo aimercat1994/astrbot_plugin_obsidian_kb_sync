@@ -68,3 +68,17 @@
 - `obsidian_sync` / `obsidian_status` / `obsidian_reset` commands
 - Auto-recreate knowledge base if missing
 - Restore deleted documents from knowledge base
+
+## [3.4.0] - 2026-06-18
+
+### 📄 文档管理
+- **新建文档**：顶栏「📄 新建」按钮，弹窗选择文件夹 + 输入文件名
+- **删除文档**：标题栏「🗑️ 删除」按钮，带确认弹窗
+- **导入文档**：顶栏「📂 导入」按钮，支持 .md/.txt/.markdown 文件
+- **导出文档**：标题栏「📥 导出」按钮，自动下载为 .md 文件
+
+### 🔧 后端 API
+- `POST /api/document/create` - 新建文档（自动补 .md 扩展名）
+- `POST /api/document/delete` - 删除文档
+- `POST /api/document/import` - 导入文档（multipart/form-data）
+- `GET /api/document/export` - 导出文档（下载 .md 文件）
