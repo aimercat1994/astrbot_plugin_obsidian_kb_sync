@@ -151,6 +151,38 @@ class FNSClient:
         await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
+    async def upload_note(self, path: str, content: str) -> bool:
+        """上传/更新单条笔记到 FNS。"""
+        resp = await self._retry_request(
+            "post",
+            f"{self.base_url}/api/note",
+            json={"vault": self.vault, "path": path, "content": content},
+            headers={
+                "token": self.token,
+                "X-Client": "WebGui",
+                "X-Client-Name": "AstrBot-Staging",
+                "X-Client-Version": "1.0.0",
+                "Domain": self.base_url,
+            },
+        )
+        if resp is not None and resp.status_code == 200:
+            data = resp.json()
+            return data.get("code") == 0 or data.get("success", False) or data.get("status", False)
+        return False
+
+    async def upload_notes_concurrent(self, items: dict[str, str]) -> dict[str, bool]:
+        """并发上传多条笔记到 FNS。items: {path: content}"""
+        sem = asyncio.Semaphore(self.concurrency)
+        results: dict[str, bool] = {}
+
+        async def upload_one(path: str, content: str):
+            async with sem:
+                results[path] = await self.upload_note(path, content)
+
+        tasks = [upload_one(p, c) for p, c in items.items()]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return results
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  内容清洗（Obsidian → 纯 Markdown）
@@ -484,6 +516,60 @@ class StagingManager:
             f"Staging: 同步完成 | 新增 {result['new']}, 更新 {result['updated']}, "
             f"未变 {result['unchanged']}, 跳过 {result['skipped']}, "
             f"错误 {result['errors']}, 删除 {len(stale_paths)}, "
+            f"耗时 {result['duration']:.1f}s"
+        )
+        return result
+
+    async def sync_to_fns(self, fns_client: FNSClient,
+                          paths: Optional[list[str]] = None) -> dict:
+        """将暂存区文档推送到 FNS。
+
+        paths: 指定要推送的路径列表。None = 推送所有有变更的文档。
+        返回 {total, uploaded, unchanged, errors, duration}。
+        """
+        result = {
+            "total": 0, "uploaded": 0, "unchanged": 0, "errors": 0,
+            "start_time": time.time(),
+        }
+
+        # 确定要推送的文档
+        if paths is not None:
+            target_paths = paths
+        else:
+            # 推送所有暂存文档
+            target_paths = list(self._metadata.keys())
+
+        result["total"] = len(target_paths)
+        if not target_paths:
+            result["duration"] = time.time() - result["start_time"]
+            return result
+
+        # 构建 {path: content} 字典
+        to_upload: dict[str, str] = {}
+        for path in target_paths:
+            content = self.get_document(path)
+            if content is None:
+                result["errors"] += 1
+                continue
+            to_upload[path] = content
+
+        if not to_upload:
+            result["duration"] = time.time() - result["start_time"]
+            return result
+
+        # 并发上传
+        upload_results = await fns_client.upload_notes_concurrent(to_upload)
+
+        for path, ok in upload_results.items():
+            if ok:
+                result["uploaded"] += 1
+            else:
+                result["errors"] += 1
+
+        result["duration"] = time.time() - result["start_time"]
+        logger.info(
+            f"Staging: 推送到 FNS 完成 | 总计 {result['total']}, "
+            f"成功 {result['uploaded']}, 错误 {result['errors']}, "
             f"耗时 {result['duration']:.1f}s"
         )
         return result
@@ -971,6 +1057,17 @@ class Dashboard:
         @app.route("/api/sync/kb", methods=["POST"])
         async def api_sync_kb():
             result = await self.sync_engine.sync_to_kb()
+            return jsonify(result)
+
+        @app.route("/api/sync/to-fns", methods=["POST"])
+        async def api_sync_to_fns():
+            data = await request.get_json() or {}
+            paths = data.get("paths")  # None = all, or list of paths
+            fns = self.fns_client_factory()
+            try:
+                result = await self.staging.sync_to_fns(fns, paths)
+            finally:
+                await fns.close()
             return jsonify(result)
 
         @app.route("/api/status")

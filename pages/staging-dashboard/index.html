@@ -342,6 +342,7 @@ body {
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="importDoc()" title="导入文档">📂 导入</button>
     <input type="file" id="importFileInput" accept=".md,.txt,.markdown" style="display:none;" onchange="handleImportFile(event)">
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
+    <button class="btn btn-sm btn-ghost border border-base-300" onclick="syncToFns()">📤 同步到 FNS</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
     <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg" title="切换主题">
@@ -1056,6 +1057,16 @@ async function syncKb() {
     renderTree();
   } catch (e) { toast('知识库同步失败: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = '📤 同步到知识库'; }
+}
+async function syncToFns() {
+  const btn = event.target.closest('button');
+  btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 推送中...';
+  try {
+    const data = await api('api/sync/to-fns', { method: 'POST', body: JSON.stringify({}) });
+    if (data.error) { toast('推送 FNS 失败: ' + data.error, 'error'); return; }
+    toast(`推送 FNS 完成: 成功 ${data.uploaded||0}, 错误 ${data.errors||0}, 耗时 ${(data.duration||0).toFixed(1)}s`, data.errors ? 'warning' : 'success');
+  } catch (e) { toast('推送 FNS 失败: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = '📤 同步到 FNS'; }
 }
 
 /* ===== Utilities ===== */
