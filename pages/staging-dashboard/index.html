@@ -315,6 +315,21 @@ body {
 .toast-item.warning { background: linear-gradient(135deg, #d97706, #f59e0b); }
 .toast-item.fade-out { opacity: 0; transition: opacity 0.3s; }
 
+/* ===== Sync Progress ===== */
+.sync-progress {
+  display: none; align-items: center; gap: 10px;
+  padding: 6px 20px; background: var(--color-base-200);
+  border-bottom: 1px solid var(--color-base-300);
+  font-size: 0.8rem; flex-shrink: 0;
+}
+.sync-progress.active { display: flex; }
+.sync-progress-label { white-space: nowrap; min-width: 120px; font-weight: 600; }
+.sync-progress-bar { flex: 1; height: 6px; background: var(--color-base-300); border-radius: 3px; overflow: hidden; position: relative; }
+.sync-progress-fill { height: 100%; background: linear-gradient(90deg, #6366f1, #22c55e); border-radius: 3px; transition: width 0.3s; width: 0; }
+.sync-progress-text { white-space: nowrap; opacity: 0.7; min-width: 100px; text-align: right; }
+.sync-progress-close { cursor: pointer; opacity: 0.5; font-size: 1rem; padding: 2px 6px; }
+.sync-progress-close:hover { opacity: 1; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -344,6 +359,7 @@ body {
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="syncToFns()">📤 同步到 FNS</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSyncHistory()">📋 历史</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
     <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg" title="切换主题">
       <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
@@ -351,6 +367,14 @@ body {
     </label>
   </div>
 </header>
+
+<!-- Sync Progress Bar -->
+<div class="sync-progress" id="syncProgress">
+  <span class="sync-progress-label" id="progressLabel">🔄 同步中...</span>
+  <div class="sync-progress-bar"><div class="sync-progress-fill" id="progressFill"></div></div>
+  <span class="sync-progress-text" id="progressText">0/0</span>
+  <span class="sync-progress-close" id="progressClose" onclick="closeProgress()" title="关闭">✕</span>
+</div>
 
 <!-- App Shell -->
 <div class="app-shell">
@@ -477,6 +501,20 @@ body {
   <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-base-300);">
     <button class="btn btn-sm btn-ghost" onclick="document.getElementById('deleteConfirmModal').close()">取消</button>
     <button class="btn btn-sm btn-error text-white" onclick="deleteDoc()">🗑️ 删除</button>
+  </div>
+</dialog>
+
+<!-- Sync History Modal -->
+<dialog id="historyModal" style="border:none;border-radius:12px;padding:0;max-width:680px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:var(--color-base-100);color:var(--color-base-content);margin:auto;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--color-base-300);">
+    <span style="font-size:1rem;font-weight:700;">📋 同步历史</span>
+    <button class="btn btn-xs btn-ghost btn-circle" onclick="document.getElementById('historyModal').close()">✕</button>
+  </div>
+  <div style="padding:12px 20px;max-height:60vh;overflow-y:auto;" id="historyBody">
+    <div style="text-align:center;padding:20px;opacity:0.5;">加载中...</div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--color-base-300);">
+    <button class="btn btn-sm btn-ghost" onclick="document.getElementById('historyModal').close()">关闭</button>
   </div>
 </dialog>
 
@@ -1032,9 +1070,49 @@ function exportDoc() {
 }
 
 /* ===== Sync ===== */
+/* ===== Sync Progress (SSE) ===== */
+const PHASE_LABELS = {
+  listing: '📋 扫描 FNS...', fetching: '📥 获取文档内容...',
+  processing: '📝 处理文档...', preparing: '🔧 准备同步...',
+  syncing: '📤 同步到知识库...', uploading: '☁️ 上传到 FNS...',
+  done: '✅ 完成',
+};
+
+function startProgress(syncType, label) {
+  const el = document.getElementById('syncProgress');
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressText').textContent = '';
+  el.classList.add('active');
+  const url = `api/sync/progress?type=${syncType}`;
+  const es = isBridge() ? null : new EventSource(url);
+  if (es) {
+    es.onmessage = (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        const lbl = PHASE_LABELS[d.phase] || d.phase;
+        document.getElementById('progressLabel').textContent = lbl;
+        if (d.total > 0) {
+          const pct = Math.round((d.current / d.total) * 100);
+          document.getElementById('progressFill').style.width = pct + '%';
+          document.getElementById('progressText').textContent = `${d.current}/${d.total}`;
+        }
+        if (d.phase === 'done') { es.close(); }
+      } catch(e) {}
+    };
+    es.onerror = () => { es.close(); };
+  }
+  return es;
+}
+
+function closeProgress() {
+  document.getElementById('syncProgress').classList.remove('active');
+}
+
 async function syncFns() {
   const btn = document.getElementById('btnSyncFns');
   btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
+  const es = startProgress('fns', '📥 从 FNS 同步...');
   try {
     const data = await api('api/sync/fns', { method: 'POST' });
     if (data.error) { toast('FNS 同步失败: ' + data.error, 'error'); return; }
@@ -1043,11 +1121,12 @@ async function syncFns() {
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
     renderTree();
   } catch (e) { toast('FNS 同步失败: ' + e.message, 'error'); }
-  finally { btn.disabled = false; btn.innerHTML = '📥 从 FNS 同步'; }
+  finally { btn.disabled = false; btn.innerHTML = '📥 从 FNS 同步'; if(es) es.close(); closeProgress(); }
 }
 async function syncKb() {
   const btn = document.getElementById('btnSyncKb');
   btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 同步中...';
+  const es = startProgress('kb', '📤 同步到知识库...');
   try {
     const data = await api('api/sync/kb', { method: 'POST' });
     if (data.error) { toast('知识库同步失败: ' + data.error, 'error'); return; }
@@ -1056,17 +1135,61 @@ async function syncKb() {
     await Promise.all([loadStatus(), loadDocuments()]);
     renderTree();
   } catch (e) { toast('知识库同步失败: ' + e.message, 'error'); }
-  finally { btn.disabled = false; btn.innerHTML = '📤 同步到知识库'; }
+  finally { btn.disabled = false; btn.innerHTML = '📤 同步到知识库'; if(es) es.close(); closeProgress(); }
 }
 async function syncToFns() {
   const btn = event.target.closest('button');
   btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 推送中...';
+  const es = startProgress('to_fns', '☁️ 推送到 FNS...');
   try {
     const data = await api('api/sync/to-fns', { method: 'POST', body: JSON.stringify({}) });
     if (data.error) { toast('推送 FNS 失败: ' + data.error, 'error'); return; }
     toast(`推送 FNS 完成: 成功 ${data.uploaded||0}, 错误 ${data.errors||0}, 耗时 ${(data.duration||0).toFixed(1)}s`, data.errors ? 'warning' : 'success');
   } catch (e) { toast('推送 FNS 失败: ' + e.message, 'error'); }
-  finally { btn.disabled = false; btn.innerHTML = '📤 同步到 FNS'; }
+  finally { btn.disabled = false; btn.innerHTML = '📤 同步到 FNS'; if(es) es.close(); closeProgress(); }
+}
+
+/* ===== Sync History ===== */
+async function openSyncHistory() {
+  const modal = document.getElementById('historyModal');
+  const body = document.getElementById('historyBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+  modal.showModal();
+  try {
+    const data = await api('api/sync/history');
+    if (!Array.isArray(data) || data.length === 0) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;opacity:0.5;">暂无同步记录</div>';
+      return;
+    }
+    const typeIcons = {fns:'📥 FNS→暂存',kb:'📤 暂存→知识库',to_fns:'☁️ 暂存→FNS'};
+    const statusIcons = {ok:'✅',error:'❌'};
+    let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+    for (const r of data) {
+      const icon = typeIcons[r.type]||r.type;
+      const st = statusIcons[r.status]||'';
+      const dur = r.duration ? r.duration.toFixed(1)+'s' : '--';
+      const ts = r.start_time ? fmtTime(r.start_time) : '--';
+      const stats = [];
+      if (r.new) stats.push(`新增 ${r.new}`);
+      if (r.updated) stats.push(`更新 ${r.updated}`);
+      if (r.uploaded) stats.push(`成功 ${r.uploaded}`);
+      if (r.unchanged) stats.push(`未变 ${r.unchanged}`);
+      if (r.skipped) stats.push(`跳过 ${r.skipped}`);
+      if (r.deleted) stats.push(`删除 ${r.deleted}`);
+      if (r.errors) stats.push(`错误 ${r.errors}`);
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:var(--color-base-200);font-size:0.82rem;">
+        <span>${st}</span>
+        <span style="font-weight:600;min-width:110px;">${icon}</span>
+        <span style="opacity:0.6;min-width:100px;">${ts}</span>
+        <span style="flex:1;">${stats.join(' · ')||'无变更'}</span>
+        <span style="opacity:0.5;">${dur}</span>
+      </div>`;
+    }
+    html += '</div>';
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;">加载失败: ${esc(e.message)}</div>`;
+  }
 }
 
 /* ===== Utilities ===== */

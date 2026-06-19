@@ -103,6 +103,20 @@ astrbot_plugin_obsidian_kb_sync/
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
 ```
 
+### 8. progress_callback 的 `**result` 参数冲突
+**问题**：sync 方法的 `done` 回调用 `await _pc("done", current, total, "", **result)` 传参，但 `result` 字典包含 `total`、`new` 等键，与 `_pc(phase, current, total, filename)` 的位置参数 `total` 冲突 → `TypeError: got multiple values for argument 'total'`。
+
+**修复**：`done` 回调不传 `**result`，只传位置参数。result 已通过函数返回值传给调用方。
+
+**教训**：使用 `**dict` 展开传参时，必须检查 dict 的键是否与目标函数的参数名冲突。
+
+### 9. SSE + Quart 异步队列
+**问题**：需要在 sync 方法执行过程中实时推送进度到前端。
+
+**方案**：用 `asyncio.Queue` 作为中间层，sync 方法 `put_nowait` 事件，SSE 端点 `await q.get()` 消费事件并 `yield` 给客户端。每个 SSE 连接创建独立 Queue，通过 `sync_engine._progress_queues[sync_type]` 注册/注销。
+
+**教训**：SSE 在 Quart 中用 `Response(generate(), mimetype="text/event-stream")` 实现，注意设置 `Cache-Control: no-cache` 和 `X-Accel-Buffering: no`。
+
 ## 🔄 版本发布流程
 
 ```bash
@@ -146,13 +160,15 @@ sudo systemctl restart astrbot
 - [ ] 暗色主题切换
 - [ ] 目录导航（TOC）显示/跳转
 - [ ] 代码语法高亮
+- [ ] 同步进度条显示（SSE 推送）
+- [ ] 同步历史弹窗（📋 历史按钮）
 
 ## 🎯 后续开发方向
 
 ### 高优先级
-- **同步历史日志**：记录每次同步的文件数、耗时、失败原因
+- ~~**同步历史日志**~~：✅ v3.6.0 已实现
 - **冲突检测**：检测 FNS 和知识库之间的版本差异
-- **同步进度条**：大批量同步时显示实时进度
+- ~~**同步进度条**~~：✅ v3.6.0 已实现
 
 ### 中优先级
 - **Webhook 实时同步**：FNS 文件变化时自动触发同步

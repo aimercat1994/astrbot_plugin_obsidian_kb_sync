@@ -252,6 +252,7 @@ class StagingManager:
         self.staging_dir.mkdir(parents=True, exist_ok=True)
 
         self._metadata: dict[str, dict] = {}
+        self._sync_history_file = data_dir / "sync_history.json"
         self._load_metadata_sync()
 
     # ── 元数据读写（同步加载，异步保存） ─────────────────────────
@@ -383,16 +384,45 @@ class StagingManager:
             "total_size_kb": round(total_size, 2),
         }
 
+    # ── 同步历史 ────────────────────────────────────────────────
+
+    async def _load_sync_history(self) -> list[dict]:
+        try:
+            if self._sync_history_file.exists():
+                import json as _json
+                content = self._sync_history_file.read_text(encoding="utf-8")
+                return _json.loads(content)
+        except Exception:
+            pass
+        return []
+
+    async def _save_sync_record(self, record: dict):
+        try:
+            import json as _json
+            history = await self._load_sync_history()
+            history.insert(0, record)
+            history = history[:50]  # 保留最近 50 条
+            loop = asyncio.get_event_loop()
+            content = _json.dumps(history, ensure_ascii=False, indent=2)
+            await loop.run_in_executor(
+                None, self._sync_history_file.write_text, content, "utf-8"
+            )
+        except Exception as e:
+            logger.error(f"Staging: 保存同步历史失败: {e}")
+
     # ── FNS 同步 ────────────────────────────────────────────────
 
     async def sync_from_fns(self, fns_client: FNSClient,
-                            exclude_patterns: Optional[list[str]] = None) -> dict:
+                            exclude_patterns: Optional[list[str]] = None,
+                            progress_callback=None) -> dict:
         """从 FNS 拉取所有笔记到暂存目录。
 
         返回 {total, new, updated, unchanged, skipped, errors, duration}。
+        progress_callback: async callable(phase, current, total, filename, **kw)
         """
         from fnmatch import fnmatch
 
+        _pc = progress_callback
         exclude_patterns = exclude_patterns or []
         result = {
             "total": 0, "new": 0, "updated": 0,
@@ -401,12 +431,17 @@ class StagingManager:
         }
 
         # 1. 列出所有笔记
+        if _pc:
+            await _pc("listing", 0, 0, "")
         notes = await fns_client.list_notes()
         result["total"] = len(notes)
         logger.info(f"Staging: FNS 返回 {len(notes)} 条笔记")
 
         if not notes:
             result["duration"] = time.time() - result["start_time"]
+            await self._save_sync_record({"type": "fns", "status": "ok", **result})
+            if _pc:
+                await _pc("done", 0, 0, "")
             return result
 
         # 2. 过滤排除项
@@ -439,14 +474,21 @@ class StagingManager:
         # 4. 并发获取需要处理的笔记内容
         if need_content_paths:
             logger.info(f"Staging: 需获取 {len(need_content_paths)} 条笔记内容")
+            if _pc:
+                await _pc("fetching", 0, len(need_content_paths), f"{len(need_content_paths)} 篇文档")
             contents = await fns_client.get_notes_concurrent(need_content_paths)
         else:
             contents = {}
 
         # 5. 处理每条笔记
         notes_by_path = {n["path"]: n for n in filtered_notes}
+        processed = 0
+        total_to_process = len(need_content_paths)
 
         for path in need_content_paths:
+            processed += 1
+            if _pc:
+                await _pc("processing", processed, total_to_process, path.split("/")[-1])
             content = contents.get(path)
             if content is None:
                 result["errors"] += 1
@@ -512,21 +554,28 @@ class StagingManager:
         await self.save_metadata()
 
         result["duration"] = time.time() - result["start_time"]
+        result["deleted"] = len(stale_paths)
         logger.info(
             f"Staging: 同步完成 | 新增 {result['new']}, 更新 {result['updated']}, "
             f"未变 {result['unchanged']}, 跳过 {result['skipped']}, "
             f"错误 {result['errors']}, 删除 {len(stale_paths)}, "
             f"耗时 {result['duration']:.1f}s"
         )
+        await self._save_sync_record({"type": "fns", "status": "ok", **result})
+        if _pc:
+            await _pc("done", processed if need_content_paths else 0,
+                      total_to_process if need_content_paths else 0, "")
         return result
 
     async def sync_to_fns(self, fns_client: FNSClient,
-                          paths: Optional[list[str]] = None) -> dict:
+                          paths: Optional[list[str]] = None,
+                          progress_callback=None) -> dict:
         """将暂存区文档推送到 FNS。
 
         paths: 指定要推送的路径列表。None = 推送所有有变更的文档。
         返回 {total, uploaded, unchanged, errors, duration}。
         """
+        _pc = progress_callback
         result = {
             "total": 0, "uploaded": 0, "unchanged": 0, "errors": 0,
             "start_time": time.time(),
@@ -542,6 +591,9 @@ class StagingManager:
         result["total"] = len(target_paths)
         if not target_paths:
             result["duration"] = time.time() - result["start_time"]
+            await self._save_sync_record({"type": "to_fns", "status": "ok", **result})
+            if _pc:
+                await _pc("done", 0, 0, "")
             return result
 
         # 构建 {path: content} 字典
@@ -558,13 +610,19 @@ class StagingManager:
             return result
 
         # 并发上传
+        if _pc:
+            await _pc("uploading", 0, len(to_upload), f"{len(to_upload)} 篇文档")
         upload_results = await fns_client.upload_notes_concurrent(to_upload)
 
+        uploaded_count = 0
         for path, ok in upload_results.items():
+            uploaded_count += 1
             if ok:
                 result["uploaded"] += 1
             else:
                 result["errors"] += 1
+            if _pc:
+                await _pc("uploading", uploaded_count, len(to_upload), path.split("/")[-1])
 
         result["duration"] = time.time() - result["start_time"]
         logger.info(
@@ -572,6 +630,9 @@ class StagingManager:
             f"成功 {result['uploaded']}, 错误 {result['errors']}, "
             f"耗时 {result['duration']:.1f}s"
         )
+        await self._save_sync_record({"type": "to_fns", "status": "ok", **result})
+        if _pc:
+            await _pc("done", uploaded_count, len(to_upload), "")
         return result
 
 
@@ -600,6 +661,7 @@ class SyncEngine:
             chunk_overlap=chunk_overlap,
         )
         self._is_syncing = False
+        self._progress_queues: dict[str, asyncio.Queue] = {}
 
     # ── KB Helper ───────────────────────────────────────────────
 
@@ -755,12 +817,24 @@ class SyncEngine:
 
     # ── 主同步流程 ──────────────────────────────────────────────
 
-    async def sync_to_kb(self) -> dict:
+    async def _emit_progress(self, sync_type: str, phase: str, current: int,
+                              total: int, filename: str, **kwargs):
+        """发送进度事件到 SSE 队列。"""
+        q = self._progress_queues.get(sync_type)
+        if q:
+            try:
+                q.put_nowait({"phase": phase, "current": current, "total": total,
+                              "filename": filename, **kwargs})
+            except Exception:
+                pass
+
+    async def sync_to_kb(self, progress_callback=None) -> dict:
         """将暂存中 sync_to_kb=True 的文档推送到 AstrBot 知识库。"""
         if self._is_syncing:
             return {"error": "正在同步中，请稍候"}
 
         self._is_syncing = True
+        _pc = progress_callback
         result = {
             "total": 0, "new": 0, "updated": 0,
             "unchanged": 0, "errors": 0,
@@ -768,6 +842,8 @@ class SyncEngine:
         }
 
         try:
+            if _pc:
+                await _pc("preparing", 0, 0, "")
             kb_helper = await self._ensure_knowledge_base()
             if not kb_helper:
                 return {"error": "无法创建或找到 AstrBot 知识库"}
@@ -779,11 +855,18 @@ class SyncEngine:
 
             if not selected_docs:
                 result["duration"] = time.time() - result["start_time"]
+                await self.staging._save_sync_record({"type": "kb", "status": "ok", **result})
+                if _pc:
+                    await _pc("done", 0, 0, "")
                 return result
 
-            for doc_info in selected_docs:
+            for idx, doc_info in enumerate(selected_docs, 1):
                 path = doc_info["path"]
                 meta = doc_info
+                fname = path.split("/")[-1]
+
+                if _pc:
+                    await _pc("syncing", idx, len(selected_docs), fname)
 
                 # 读取暂存的原始内容
                 raw_content = self.staging.get_document(path)
@@ -828,7 +911,7 @@ class SyncEngine:
                     await self._delete_document(old_kb_doc_id)
 
                 # 全量上传
-                file_name = path.split("/")[-1]
+                file_name = fname
                 if not file_name.endswith(".md"):
                     file_name += ".md"
 
@@ -874,6 +957,9 @@ class SyncEngine:
         finally:
             self._is_syncing = False
 
+        await self.staging._save_sync_record({"type": "kb", "status": "error" if result.get("error") else "ok", **result})
+        if _pc:
+            await _pc("done", result.get("total", 0), result.get("total", 0), "")
         return result
 
 
@@ -1047,28 +1133,60 @@ class Dashboard:
 
         @app.route("/api/sync/fns", methods=["POST"])
         async def api_sync_fns():
+            async def _progress(phase, current, total, filename, **kw):
+                await self.sync_engine._emit_progress("fns", phase, current, total, filename, **kw)
             fns = self.fns_client_factory()
             try:
-                result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+                result = await self.staging.sync_from_fns(fns, self.exclude_patterns, _progress)
             finally:
                 await fns.close()
             return jsonify(result)
 
         @app.route("/api/sync/kb", methods=["POST"])
         async def api_sync_kb():
-            result = await self.sync_engine.sync_to_kb()
+            async def _progress(phase, current, total, filename, **kw):
+                await self.sync_engine._emit_progress("kb", phase, current, total, filename, **kw)
+            result = await self.sync_engine.sync_to_kb(_progress)
             return jsonify(result)
 
         @app.route("/api/sync/to-fns", methods=["POST"])
         async def api_sync_to_fns():
             data = await request.get_json() or {}
             paths = data.get("paths")  # None = all, or list of paths
+            async def _progress(phase, current, total, filename, **kw):
+                await self.sync_engine._emit_progress("to_fns", phase, current, total, filename, **kw)
             fns = self.fns_client_factory()
             try:
-                result = await self.staging.sync_to_fns(fns, paths)
+                result = await self.staging.sync_to_fns(fns, paths, _progress)
             finally:
                 await fns.close()
             return jsonify(result)
+
+        @app.route("/api/sync/progress")
+        async def api_sync_progress():
+            from quart import Response
+            sync_type = request.args.get("type", "fns")
+            q = asyncio.Queue()
+            self.sync_engine._progress_queues[sync_type] = q
+            async def generate():
+                try:
+                    while True:
+                        try:
+                            data = await asyncio.wait_for(q.get(), timeout=60)
+                            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                            if data.get("phase") == "done":
+                                break
+                        except asyncio.TimeoutError:
+                            yield ": keepalive\n\n"
+                finally:
+                    self.sync_engine._progress_queues.pop(sync_type, None)
+            return Response(generate(), mimetype="text/event-stream",
+                          headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+        @app.route("/api/sync/history")
+        async def api_sync_history():
+            history = await self.staging._load_sync_history()
+            return jsonify(history)
 
         @app.route("/api/status")
         async def api_status():
@@ -1219,6 +1337,8 @@ class ObsidianKBStagingPlugin(Star):
             (f"{plugin_prefix}/api/metadata/batch","webui_api_batch_meta",   ["POST"]),
             (f"{plugin_prefix}/api/sync/fns",      "webui_api_sync_fns",     ["POST"]),
             (f"{plugin_prefix}/api/sync/kb",       "webui_api_sync_kb",      ["POST"]),
+            (f"{plugin_prefix}/api/sync/history",  "webui_api_sync_history", ["GET"]),
+            (f"{plugin_prefix}/api/sync/progress", "webui_api_sync_progress",["GET"]),
             (f"{plugin_prefix}/api/status",        "webui_api_status",       ["GET"]),
             (f"{plugin_prefix}/api/config",        "webui_api_config",       ["GET"]),
             (f"{plugin_prefix}/api/config/save",   "webui_api_config_save",  ["POST"]),
@@ -1291,9 +1411,11 @@ class ObsidianKBStagingPlugin(Star):
         from quart import jsonify
         if not self.fns_url or not self.fns_token:
             return jsonify({"error": "FNS 未配置"}), 400
+        async def _progress(phase, current, total, filename, **kw):
+            await self.sync_engine._emit_progress("fns", phase, current, total, filename, **kw)
         fns = self._make_fns_client()
         try:
-            result = await self.staging.sync_from_fns(fns, self.exclude_patterns)
+            result = await self.staging.sync_from_fns(fns, self.exclude_patterns, _progress)
         finally:
             await fns.close()
         if "error" not in result:
@@ -1302,10 +1424,38 @@ class ObsidianKBStagingPlugin(Star):
 
     async def webui_api_sync_kb(self, **kwargs):
         from quart import jsonify
-        result = await self.sync_engine.sync_to_kb()
+        async def _progress(phase, current, total, filename, **kw):
+            await self.sync_engine._emit_progress("kb", phase, current, total, filename, **kw)
+        result = await self.sync_engine.sync_to_kb(_progress)
         if "error" not in result:
             self._last_kb_sync = time.time()
         return jsonify(result)
+
+    async def webui_api_sync_history(self, **kwargs):
+        from quart import jsonify
+        history = await self.staging._load_sync_history()
+        return jsonify(history)
+
+    async def webui_api_sync_progress(self, **kwargs):
+        from quart import Response, request
+        import json as _json
+        sync_type = request.args.get("type", "fns") if hasattr(request, 'args') else "fns"
+        q = asyncio.Queue()
+        self.sync_engine._progress_queues[sync_type] = q
+        async def generate():
+            try:
+                while True:
+                    try:
+                        data = await asyncio.wait_for(q.get(), timeout=60)
+                        yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+                        if data.get("phase") == "done":
+                            break
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+            finally:
+                self.sync_engine._progress_queues.pop(sync_type, None)
+        return Response(generate(), mimetype="text/event-stream",
+                      headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     async def webui_api_status(self, **kwargs):
         from quart import jsonify
