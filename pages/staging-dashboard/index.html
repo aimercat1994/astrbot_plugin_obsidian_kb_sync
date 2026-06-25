@@ -10,6 +10,12 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css" id="hljs-light">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css" id="hljs-dark" disabled>
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+<!-- KaTeX 数学公式 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<!-- Mermaid 图表 -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <style>
 html, body { height: 100%; overflow: hidden; margin: 0; }
 body {
@@ -245,6 +251,92 @@ body {
 .md-render .task-list-item input { margin-right: 0.5rem; accent-color: var(--color-primary); }
 .md-render del { opacity: 0.5; text-decoration: line-through; }
 .md-render mark { background: color-mix(in srgb, var(--color-warning) 30%, transparent); padding: 1px 4px; border-radius: 3px; }
+
+/* 代码块增强 */
+.code-block-wrapper {
+  position: relative; margin: 0.8rem 0;
+}
+.code-block-wrapper pre {
+  margin: 0; padding-top: 36px;
+}
+.code-block-header {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 12px; font-size: 0.72rem;
+  background: color-mix(in srgb, var(--color-base-300) 50%, transparent);
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid var(--color-base-300);
+}
+.code-lang { color: var(--color-base-content); opacity: 0.5; font-weight: 600; }
+.code-copy-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  color: var(--color-base-content); opacity: 0.5;
+  background: transparent; border: none; font-size: 0.72rem;
+  transition: all 0.2s;
+}
+.code-copy-btn:hover { opacity: 1; background: color-mix(in srgb, var(--color-primary) 15%, transparent); }
+.code-copy-btn.copied { color: var(--color-success); opacity: 1; }
+
+/* 行号 */
+.code-lines {
+  display: flex; user-select: none;
+}
+.code-line-numbers {
+  flex-shrink: 0; padding: 14px 0; text-align: right;
+  color: var(--color-base-content); opacity: 0.25;
+  font-size: 0.75rem; line-height: 1.6;
+  border-right: 1px solid var(--color-base-300);
+  margin-right: 12px; padding-right: 10px;
+  min-width: 2.5rem;
+}
+.code-content { flex: 1; overflow-x: auto; }
+
+/* Lightbox */
+.lightbox-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.85); display: none;
+  align-items: center; justify-content: center;
+  cursor: zoom-out; padding: 40px;
+}
+.lightbox-overlay.active { display: flex; }
+.lightbox-overlay img {
+  max-width: 95vw; max-height: 90vh; border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.lightbox-close {
+  position: absolute; top: 16px; right: 20px;
+  background: rgba(255,255,255,0.15); border: none;
+  color: white; font-size: 1.5rem; cursor: pointer;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.3); }
+
+/* Callout 块 */
+.md-render .callout {
+  border-left: 4px solid var(--color-primary);
+  padding: 12px 16px; margin: 0.8rem 0;
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.md-render .callout-title {
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 600; margin-bottom: 6px; font-size: 0.9rem;
+}
+.md-render .callout-body { font-size: 0.88rem; }
+.md-render .callout-type-info { border-left-color: var(--color-info); }
+.md-render .callout-type-warning { border-left-color: var(--color-warning); }
+.md-render .callout-type-tip { border-left-color: var(--color-success); }
+.md-render .callout-type-danger { border-left-color: var(--color-error); }
+
+/* Wikilink */
+.md-render .wikilink {
+  color: var(--color-primary); cursor: pointer;
+  text-decoration: none; border-bottom: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+.md-render .wikilink:hover { border-bottom-color: var(--color-primary); }
 
 /* TOC */
 .toc-panel {
@@ -865,18 +957,115 @@ function renderMarkdown(text) {
 
 function mdToHtml(md) {
   if (!md) return '';
-  // Configure marked
+  
+  // 1. 预处理：保护数学公式不被 marked 处理
+  const mathBlocks = [];
+  let processed = md.replace(/\$\$([\s\S]*?)\$\$/g, (match, p1) => {
+    mathBlocks.push({ type: 'block', content: p1.trim() });
+    return `%%MATH_BLOCK_${mathBlocks.length - 1}%%`;
+  });
+  processed = processed.replace(/\$([^\$\n]+?)\$/g, (match, p1) => {
+    mathBlocks.push({ type: 'inline', content: p1.trim() });
+    return `%%MATH_BLOCK_${mathBlocks.length - 1}%%`;
+  });
+  
+  // 2. 预处理：Callout 块 (> [!type] Title)
+  processed = processed.replace(/^>\s*\[!(\w+)\]\s*(.*)\n((?:>.*\n?)*)/gm, (match, type, title, body) => {
+    const iconMap = { note: '📝', info: 'ℹ️', tip: '💡', warning: '⚠️', danger: '🚨', quote: '💬' };
+    const icon = iconMap[type.toLowerCase()] || '📌';
+    const cleanBody = body.replace(/^>\s?/gm, '').trim();
+    return `<div class="callout callout-type-${type.toLowerCase()}"><div class="callout-title">${icon} ${title || type}</div><div class="callout-body">${cleanBody}</div></div>\n`;
+  });
+  
+  // 3. 预处理：Wikilink [[page|text]] 或 [[page]]
+  processed = processed.replace(/\[\[([^\]|]+)(\|([^\]]*))?\]\]/g, (match, page, _, text) => {
+    const display = text || page;
+    return `<span class="wikilink" data-page="${page}" onclick="handleWikilink('${page}')">${display}</span>`;
+  });
+  
+  // 4. Configure marked
   marked.setOptions({
     breaks: true,
     gfm: true,
     highlight: function(code, lang) {
+      if (lang === 'mermaid') return code; // Mermaid 不做语法高亮
       if (lang && hljs.getLanguage(lang)) {
         return hljs.highlight(code, { language: lang }).value;
       }
       return hljs.highlightAuto(code).value;
     }
   });
-  return marked.parse(md);
+  
+  // 5. 自定义 renderer 处理代码块
+  const renderer = new marked.Renderer();
+  const originalCode = renderer.code.bind(renderer);
+  renderer.code = function(code, language, escaped) {
+    if (language === 'mermaid') {
+      return `<div class="mermaid">${code}</div>`;
+    }
+    const lang = language || '';
+    const highlighted = lang && hljs.getLanguage(lang) 
+      ? hljs.highlight(code, { language: lang }).value 
+      : hljs.highlightAuto(code).value;
+    const lines = code.split('\n');
+    const lineNumbers = lines.map((_, i) => `<span>${i + 1}</span>`).join('\n');
+    const langLabel = lang ? `<span class="code-lang">${lang}</span>` : '<span class="code-lang">text</span>';
+    return `<div class="code-block-wrapper">
+      <div class="code-block-header">
+        ${langLabel}
+        <button class="code-copy-btn" onclick="copyCode(this)" data-code="${esc(code)}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          复制
+        </button>
+      </div>
+      <div class="code-lines">
+        <div class="code-line-numbers">${lineNumbers}</div>
+        <pre class="code-content"><code class="hljs language-${lang}">${highlighted}</code></pre>
+      </div>
+    </div>`;
+  };
+  
+  let html = marked.parse(processed, { renderer });
+  
+  // 6. 恢复数学公式
+  mathBlocks.forEach((block, i) => {
+    const placeholder = `%%MATH_BLOCK_${i}%%`;
+    try {
+      if (block.type === 'block') {
+        const rendered = katex.renderToString(block.content, { displayMode: true, throwOnError: false });
+        html = html.replace(placeholder, `<div class="math-block" style="text-align:center;margin:1rem 0;overflow-x:auto;">${rendered}</div>`);
+      } else {
+        const rendered = katex.renderToString(block.content, { displayMode: false, throwOnError: false });
+        html = html.replace(placeholder, rendered);
+      }
+    } catch (e) {
+      html = html.replace(placeholder, `<code style="color:var(--color-error)">${esc(block.content)}</code>`);
+    }
+  });
+  
+  return html;
+}
+
+function copyCode(btn) {
+  const code = btn.dataset.code;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.classList.add('copied');
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
+    }, 2000);
+  });
+}
+
+function handleWikilink(page) {
+  // 尝试在当前文件列表中查找匹配的文档
+  const match = state.treeData?.find(d => d.path?.includes(page) || d.name?.includes(page));
+  if (match) {
+    loadDocument(match.path);
+  } else {
+    showToast(`未找到文档: ${page}`, 'warning');
+  }
 }
 
 function buildToc() {
@@ -929,13 +1118,55 @@ function buildToc() {
 }
 
 function postRender() {
-  // Marked already handles links and images, just add target="_blank" to links
+  // 链接新窗口打开
   document.querySelectorAll('.md-render a').forEach(el => {
     if (!el.getAttribute('target')) {
       el.setAttribute('target', '_blank');
       el.setAttribute('rel', 'noopener');
     }
   });
+  
+  // 图片 Lightbox
+  document.querySelectorAll('.md-render img').forEach(img => {
+    img.style.cursor = 'zoom-in';
+    img.onclick = () => openLightbox(img.src);
+  });
+  
+  // Mermaid 渲染
+  const mermaidDivs = document.querySelectorAll('.mermaid');
+  if (mermaidDivs.length > 0) {
+    mermaid.initialize({ 
+      startOnLoad: false, 
+      theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default',
+      securityLevel: 'loose'
+    });
+    mermaidDivs.forEach((div, i) => {
+      div.id = `mermaid-${i}-${Date.now()}`;
+      try {
+        mermaid.render(div.id + '-svg', div.textContent).then(({ svg }) => {
+          div.innerHTML = svg;
+        }).catch(e => {
+          div.innerHTML = `<pre style="color:var(--color-error)">${esc(div.textContent)}</pre>`;
+        });
+      } catch (e) {
+        div.innerHTML = `<pre style="color:var(--color-error)">${esc(div.textContent)}</pre>`;
+      }
+    });
+  }
+}
+
+/* Lightbox */
+function openLightbox(src) {
+  const overlay = document.getElementById('lightboxOverlay');
+  const img = document.getElementById('lightboxImg');
+  img.src = src;
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+  const overlay = document.getElementById('lightboxOverlay');
+  overlay.classList.remove('active');
+  document.body.style.overflow = '';
 }
 
 /* ===== Edit Mode ===== */
@@ -1282,5 +1513,12 @@ init().catch(e => { console.error('Init failed:', e); toast('初始化失败: ' 
 window.onerror = (msg, url, line) => { console.error('Global error:', msg, url, line); toast(`JS Error: ${msg} (L${line})`, 'error'); };
 window.addEventListener('unhandledrejection', e => { console.error('Unhandled:', e.reason); toast('Error: ' + (e.reason?.message||'unknown'), 'error'); });
 </script>
+
+<!-- Lightbox Overlay -->
+<div id="lightboxOverlay" class="lightbox-overlay" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">×</button>
+  <img id="lightboxImg" src="" alt="Preview">
+</div>
+
 </body>
 </html>
