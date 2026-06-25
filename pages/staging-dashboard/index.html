@@ -338,6 +338,46 @@ body {
 }
 .md-render .wikilink:hover { border-bottom-color: var(--color-primary); }
 
+/* 嵌入元素 */
+.md-render .embed-image {
+  margin: 1rem 0; text-align: center;
+}
+.md-render .embed-image img {
+  max-width: 100%; border-radius: 8px; cursor: zoom-in;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+.md-render .embed-image img:hover {
+  transform: scale(1.02);
+}
+
+.md-render .embed-doc {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; margin: 0.8rem 0;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-radius: 8px; cursor: pointer;
+  transition: all 0.2s;
+}
+.md-render .embed-doc:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+.md-render .embed-doc-icon {
+  font-size: 1.5rem; flex-shrink: 0;
+}
+.md-render .embed-doc-content {
+  flex: 1; min-width: 0;
+}
+.md-render .embed-doc-title {
+  font-weight: 600; color: var(--color-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.md-render .embed-doc-hint {
+  font-size: 0.75rem; opacity: 0.5; margin-top: 2px;
+}
+
 /* TOC */
 .toc-panel {
   width: 220px; flex-shrink: 0; overflow-y: auto; padding: 12px 14px;
@@ -359,6 +399,34 @@ body {
 .toc-list .toc-h2 { padding-left: 18px; }
 .toc-list .toc-h3 { padding-left: 28px; font-size: 0.75rem; }
 .toc-list .toc-h4, .toc-list .toc-h5, .toc-list .toc-h6 { padding-left: 38px; font-size: 0.73rem; opacity: 0.5; }
+
+/* Search Highlight Bar */
+.search-highlight-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--color-base-200);
+  border-bottom: 1px solid var(--color-base-300);
+}
+.search-highlight-bar input {
+  flex: 1; padding: 4px 8px; border: 1px solid var(--color-base-300);
+  border-radius: 4px; font-size: 0.8rem; background: var(--color-base-100);
+  color: var(--color-base-content); outline: none;
+}
+.search-highlight-bar input:focus {
+  border-color: var(--color-primary);
+}
+.search-highlight-count {
+  font-size: 0.75rem; opacity: 0.6; min-width: 60px; text-align: center;
+}
+
+/* Search Highlight in Content */
+.search-highlight {
+  background: color-mix(in srgb, var(--color-warning) 40%, transparent);
+  padding: 1px 2px; border-radius: 2px;
+}
+.search-highlight-active {
+  background: color-mix(in srgb, var(--color-primary) 50%, transparent);
+  outline: 2px solid var(--color-primary);
+}
 
 /* Editor */
 .editor-textarea {
@@ -507,11 +575,20 @@ body {
         </label>
       </div>
       <div class="viewer-actions" id="viewerActions" style="display:none;">
+        <button class="btn btn-xs btn-ghost border border-base-300" onclick="toggleSearchHighlight()" title="搜索高亮" id="btnSearch">🔍 搜索</button>
         <button class="btn btn-xs btn-ghost border border-base-300" onclick="exportDoc()" title="导出">📥 导出</button>
         <button class="btn btn-xs btn-ghost border border-base-300" onclick="confirmDeleteDoc()" title="删除">🗑️ 删除</button>
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnEdit" onclick="toggleEdit()">✏️ 编辑</button>
         <button class="btn btn-xs btn-primary text-white" id="btnSave" onclick="saveDoc()" style="display:none;">💾 保存</button>
         <button class="btn btn-xs btn-ghost border border-base-300" id="btnCancel" onclick="cancelEdit()" style="display:none;">取消</button>
+      </div>
+      <!-- 搜索高亮栏 -->
+      <div class="search-highlight-bar" id="searchHighlightBar" style="display:none;">
+        <input type="text" id="searchHighlightInput" placeholder="搜索关键词..." oninput="onSearchHighlight(this.value)">
+        <span class="search-highlight-count" id="searchHighlightCount"></span>
+        <button class="btn btn-xs btn-ghost" onclick="searchHighlightPrev()" title="上一个">↑</button>
+        <button class="btn btn-xs btn-ghost" onclick="searchHighlightNext()" title="下一个">↓</button>
+        <button class="btn btn-xs btn-ghost" onclick="toggleSearchHighlight()" title="关闭">✕</button>
       </div>
     </div>
     <div class="viewer-body" id="viewerContent">
@@ -977,7 +1054,26 @@ function mdToHtml(md) {
     return `<div class="callout callout-type-${type.toLowerCase()}"><div class="callout-title">${icon} ${title || type}</div><div class="callout-body">${cleanBody}</div></div>\n`;
   });
   
-  // 3. 预处理：Wikilink [[page|text]] 或 [[page]]
+  // 3. 预处理：嵌入 ![[...]]（必须在 Wikilink 之前处理）
+  processed = processed.replace(/!\[\[([^\]|]+)(\|([^\]]*))?\]\]/g, (match, ref, _, alt) => {
+    const isImage = /\.(png|jpg|jpeg|gif|svg|webp|bmp)$/i.test(ref);
+    if (isImage) {
+      // 图片嵌入：尝试从暂存区加载
+      return `<div class="embed-image"><img src="/api/document/image?path=${encodeURIComponent(ref)}" alt="${alt || ref}" loading="lazy" onclick="openLightbox(this.src)"></div>`;
+    } else {
+      // 文档嵌入：显示为可点击的引用卡片
+      const displayName = alt || ref;
+      return `<div class="embed-doc" onclick="handleWikilink('${ref}')">
+        <div class="embed-doc-icon">📄</div>
+        <div class="embed-doc-content">
+          <div class="embed-doc-title">${displayName}</div>
+          <div class="embed-doc-hint">点击打开文档</div>
+        </div>
+      </div>`;
+    }
+  });
+  
+  // 4. 预处理：Wikilink [[page|text]] 或 [[page]]（排除已处理的嵌入）
   processed = processed.replace(/\[\[([^\]|]+)(\|([^\]]*))?\]\]/g, (match, page, _, text) => {
     const display = text || page;
     return `<span class="wikilink" data-page="${page}" onclick="handleWikilink('${page}')">${display}</span>`;
@@ -1066,6 +1162,111 @@ function handleWikilink(page) {
   } else {
     showToast(`未找到文档: ${page}`, 'warning');
   }
+}
+
+/* ===== Search Highlight ===== */
+let searchHighlightState = {
+  active: false,
+  keyword: '',
+  matches: [],
+  currentIndex: -1
+};
+
+function toggleSearchHighlight() {
+  const bar = document.getElementById('searchHighlightBar');
+  searchHighlightState.active = !searchHighlightState.active;
+  if (searchHighlightState.active) {
+    bar.style.display = 'flex';
+    document.getElementById('searchHighlightInput').focus();
+  } else {
+    bar.style.display = 'none';
+    clearSearchHighlight();
+  }
+}
+
+function onSearchHighlight(keyword) {
+  searchHighlightState.keyword = keyword;
+  clearSearchHighlight();
+  
+  if (!keyword || keyword.length < 1) {
+    document.getElementById('searchHighlightCount').textContent = '';
+    return;
+  }
+  
+  const viewer = document.getElementById('viewerContent');
+  const walker = document.createTreeWalker(viewer, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  let node;
+  while (node = walker.nextNode()) {
+    textNodes.push(node);
+  }
+  
+  textNodes.forEach(textNode => {
+    const text = textNode.textContent;
+    const regex = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
+    if (regex.test(text)) {
+      const span = document.createElement('span');
+      span.innerHTML = text.replace(regex, '<mark class="search-highlight">$1</mark>');
+      textNode.parentNode.replaceChild(span, textNode);
+    }
+  });
+  
+  searchHighlightState.matches = viewer.querySelectorAll('.search-highlight');
+  searchHighlightState.currentIndex = -1;
+  
+  if (searchHighlightState.matches.length > 0) {
+    document.getElementById('searchHighlightCount').textContent = `${searchHighlightState.matches.length} 个匹配`;
+    searchHighlightNext();
+  } else {
+    document.getElementById('searchHighlightCount').textContent = '无匹配';
+  }
+}
+
+function searchHighlightNext() {
+  if (searchHighlightState.matches.length === 0) return;
+  
+  if (searchHighlightState.currentIndex >= 0) {
+    searchHighlightState.matches[searchHighlightState.currentIndex].classList.remove('search-highlight-active');
+  }
+  
+  searchHighlightState.currentIndex = (searchHighlightState.currentIndex + 1) % searchHighlightState.matches.length;
+  const current = searchHighlightState.matches[searchHighlightState.currentIndex];
+  current.classList.add('search-highlight-active');
+  current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  
+  document.getElementById('searchHighlightCount').textContent = 
+    `${searchHighlightState.currentIndex + 1}/${searchHighlightState.matches.length}`;
+}
+
+function searchHighlightPrev() {
+  if (searchHighlightState.matches.length === 0) return;
+  
+  if (searchHighlightState.currentIndex >= 0) {
+    searchHighlightState.matches[searchHighlightState.currentIndex].classList.remove('search-highlight-active');
+  }
+  
+  searchHighlightState.currentIndex = (searchHighlightState.currentIndex - 1 + searchHighlightState.matches.length) % searchHighlightState.matches.length;
+  const current = searchHighlightState.matches[searchHighlightState.currentIndex];
+  current.classList.add('search-highlight-active');
+  current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  
+  document.getElementById('searchHighlightCount').textContent = 
+    `${searchHighlightState.currentIndex + 1}/${searchHighlightState.matches.length}`;
+}
+
+function clearSearchHighlight() {
+  const viewer = document.getElementById('viewerContent');
+  viewer.querySelectorAll('.search-highlight').forEach(el => {
+    el.outerHTML = el.textContent;
+  });
+  // 清理可能产生的空 span
+  viewer.querySelectorAll('span:empty').forEach(el => el.remove());
+  searchHighlightState.matches = [];
+  searchHighlightState.currentIndex = -1;
+}
+
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function buildToc() {
