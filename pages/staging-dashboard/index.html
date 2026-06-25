@@ -998,18 +998,18 @@ function mdToHtml(md) {
   
   // 5. 自定义 renderer 处理代码块
   const renderer = new marked.Renderer();
-  const originalCode = renderer.code.bind(renderer);
-  renderer.code = function(code, language, escaped) {
-    if (language === 'mermaid') {
+  renderer.code = function({ text, lang, escaped }) {
+    const code = text;
+    if (lang === 'mermaid') {
       return `<div class="mermaid">${code}</div>`;
     }
-    const lang = language || '';
-    const highlighted = lang && hljs.getLanguage(lang) 
-      ? hljs.highlight(code, { language: lang }).value 
+    const language = lang || '';
+    const highlighted = language && hljs.getLanguage(language) 
+      ? hljs.highlight(code, { language }).value 
       : hljs.highlightAuto(code).value;
     const lines = code.split('\n');
     const lineNumbers = lines.map((_, i) => `<span>${i + 1}</span>`).join('\n');
-    const langLabel = lang ? `<span class="code-lang">${lang}</span>` : '<span class="code-lang">text</span>';
+    const langLabel = language ? `<span class="code-lang">${language}</span>` : '<span class="code-lang">text</span>';
     return `<div class="code-block-wrapper">
       <div class="code-block-header">
         ${langLabel}
@@ -1020,7 +1020,7 @@ function mdToHtml(md) {
       </div>
       <div class="code-lines">
         <div class="code-line-numbers">${lineNumbers}</div>
-        <pre class="code-content"><code class="hljs language-${lang}">${highlighted}</code></pre>
+        <pre class="code-content"><code class="hljs language-${language}">${highlighted}</code></pre>
       </div>
     </div>`;
   };
