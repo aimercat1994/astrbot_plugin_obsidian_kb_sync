@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.1] - 2026-06-25
+
+### 🐛 Bug Fixes
+- 修复 marked.js v12+ renderer.code API 参数格式（改为对象解构 `{text, lang, escaped}`）
+- 代码块复制按钮和行号功能现在正常工作
+
 ## [3.7.0] - 2026-06-25
 
 ### 📐 文档预览增强
