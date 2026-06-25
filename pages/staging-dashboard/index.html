@@ -520,6 +520,7 @@ body {
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="syncToFns()">📤 同步到 FNS</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSyncHistory()">📋 历史</button>
+    <button class="btn btn-sm btn-ghost border border-base-300" id="btnConflicts" onclick="openConflicts()" style="display:none;">⚠️ 冲突 <span class="badge badge-sm badge-warning" id="conflictCount">0</span></button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
     <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle text-lg" title="切换主题">
       <input type="checkbox" id="themeToggle" onchange="toggleTheme()">
@@ -689,6 +690,24 @@ body {
 
 <!-- Toast -->
 <div class="toast-wrap" id="toastContainer"></div>
+
+<!-- Conflict Modal -->
+<dialog id="conflictModal" style="border:none;border-radius:12px;padding:0;max-width:800px;width:94%;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:var(--color-base-100);color:var(--color-base-content);margin:auto;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--color-base-300);">
+    <span style="font-size:1rem;font-weight:700;">⚠️ 冲突检测</span>
+    <button class="btn btn-xs btn-ghost btn-circle" onclick="document.getElementById('conflictModal').close()">✕</button>
+  </div>
+  <div style="padding:12px 20px;max-height:60vh;overflow-y:auto;" id="conflictBody">
+    <div style="text-align:center;padding:20px;"><span class="loading loading-spinner loading-md text-primary"></span></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-top:1px solid var(--color-base-300);">
+    <div style="display:flex;gap:6px;" id="conflictBatchActions" style="display:none;">
+      <button class="btn btn-xs btn-ghost border border-base-300" onclick="resolveAllConflicts('keep_fns')">📥 全部用 FNS</button>
+      <button class="btn btn-xs btn-ghost border border-base-300" onclick="resolveAllConflicts('keep_local')">💾 全部保留暂存</button>
+    </div>
+    <button class="btn btn-sm btn-ghost" onclick="document.getElementById('conflictModal').close()">关闭</button>
+  </div>
+</dialog>
 
 <!-- Bridge SDK -->
 <script src="/api/plugin/page/bridge-sdk.js"></script>
@@ -1552,6 +1571,7 @@ async function syncFns() {
     toast(`FNS 同步完成: 新增 ${data.new||0}, 更新 ${data.updated||0}, 未变 ${data.unchanged||0}`, 'success');
     await Promise.all([loadFolders(), loadDocuments(), loadStatus()]);
     renderTree();
+    checkConflicts(); // FNS 同步后重新检测冲突
   } catch (e) { toast('FNS 同步失败: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = '📥 从 FNS 同步'; if(es) es.close(); closeProgress(); }
 }
@@ -1621,6 +1641,146 @@ async function openSyncHistory() {
     body.innerHTML = html;
   } catch (e) {
     body.innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+/* ===== Conflict Detection ===== */
+let _conflicts = [];
+
+async function checkConflicts() {
+  try {
+    const data = await api('api/conflicts');
+    _conflicts = data.conflicts || [];
+    const btn = document.getElementById('btnConflicts');
+    const badge = document.getElementById('conflictCount');
+    if (_conflicts.length > 0) {
+      btn.style.display = '';
+      badge.textContent = _conflicts.length;
+    } else {
+      btn.style.display = 'none';
+    }
+  } catch (e) {
+    // 静默失败，不影响用户体验
+    console.warn('冲突检测失败:', e);
+  }
+}
+
+async function openConflicts() {
+  const modal = document.getElementById('conflictModal');
+  const body = document.getElementById('conflictBody');
+  const batchDiv = document.getElementById('conflictBatchActions');
+  body.innerHTML = '<div style="text-align:center;padding:20px;"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+  batchDiv.style.display = 'none';
+  modal.showModal();
+  try {
+    const data = await api('api/conflicts');
+    _conflicts = data.conflicts || [];
+    const badge = document.getElementById('conflictCount');
+    badge.textContent = _conflicts.length;
+    const btn = document.getElementById('btnConflicts');
+    btn.style.display = _conflicts.length > 0 ? '' : 'none';
+
+    if (_conflicts.length === 0) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;opacity:0.5;">🎉 没有发现冲突，一切正常！</div>';
+      return;
+    }
+
+    batchDiv.style.display = '';
+    const typeLabels = {
+      'both_modified': { icon: '🔴', label: '双方修改', color: '#ef4444' },
+      'remote_modified': { icon: '🟡', label: 'FNS 已修改', color: '#f59e0b' },
+      'remote_deleted': { icon: '⚫', label: 'FNS 已删除', color: '#6b7280' },
+    };
+
+    let html = `<div style="display:flex;flex-direction:column;gap:6px;">`;
+    html += `<div style="font-size:0.82rem;opacity:0.6;padding:0 4px;">共 ${_conflicts.length} 个冲突</div>`;
+
+    for (let i = 0; i < _conflicts.length; i++) {
+      const c = _conflicts[i];
+      const t = typeLabels[c.type] || { icon: '❓', label: c.type, color: '#6b7280' };
+      const name = c.path.split('/').pop();
+      const folder = c.path.includes('/') ? c.path.split('/').slice(0, -1).join('/') : '';
+      const sizeStr = c.size_kb ? `${c.size_kb.toFixed(1)}KB` : '';
+
+      let actions = '';
+      if (c.type === 'remote_deleted') {
+        actions = `
+          <button class="btn btn-xs btn-ghost border border-base-300" onclick="resolveConflict(${i},'keep_local')">💾 保留暂存</button>
+          <button class="btn btn-xs btn-error btn-outline" onclick="resolveConflict(${i},'keep_fns')">🗑️ 删除</button>`;
+      } else {
+        actions = `
+          <button class="btn btn-xs btn-ghost border border-base-300" onclick="resolveConflict(${i},'keep_fns')">📥 用 FNS</button>
+          <button class="btn btn-xs btn-ghost border border-base-300" onclick="resolveConflict(${i},'keep_local')">💾 保留暂存</button>
+          <button class="btn btn-xs btn-ghost" onclick="resolveConflict(${i},'skip')">跳过</button>`;
+      }
+
+      html += `<div id="conflict-row-${i}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--color-base-200);font-size:0.82rem;border-left:3px solid ${t.color};">
+        <span style="font-size:1rem;" title="${t.label}">${t.icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(c.path)}">${esc(name)}</div>
+          <div style="font-size:0.75rem;opacity:0.5;">${esc(folder)}${sizeStr ? ' · ' + sizeStr : ''}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          ${actions}
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+async function resolveConflict(idx, resolution) {
+  const c = _conflicts[idx];
+  if (!c) return;
+  const row = document.getElementById(`conflict-row-${idx}`);
+  if (row) row.style.opacity = '0.4';
+  try {
+    const result = await api('api/conflicts/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ path: c.path, resolution })
+    });
+    if (result.success) {
+      const actionLabels = { kept_fns: '已用 FNS 版本', kept_local: '已保留暂存版', skipped: '已跳过' };
+      toast(actionLabels[result.action] || '已解决', 'success');
+      _conflicts.splice(idx, 1);
+      // 重新渲染
+      openConflicts();
+      // 更新 badge
+      const badge = document.getElementById('conflictCount');
+      badge.textContent = _conflicts.length;
+      document.getElementById('btnConflicts').style.display = _conflicts.length > 0 ? '' : 'none';
+      // 刷新文档列表
+      loadDocuments();
+    } else {
+      toast(result.error || '解决失败', 'error');
+      if (row) row.style.opacity = '1';
+    }
+  } catch (e) {
+    toast('解决失败: ' + e.message, 'error');
+    if (row) row.style.opacity = '1';
+  }
+}
+
+async function resolveAllConflicts(resolution) {
+  if (_conflicts.length === 0) return;
+  const paths = _conflicts.map(c => c.path);
+  const label = resolution === 'keep_fns' ? '全部用 FNS 版本覆盖' : '全部保留暂存版本';
+  if (!confirm(`确定要 ${label} 吗？（${paths.length} 个文档）`)) return;
+  try {
+    const result = await api('api/conflicts/resolve-batch', {
+      method: 'POST',
+      body: JSON.stringify({ paths, resolution })
+    });
+    toast(`已解决 ${result.resolved || 0} 个冲突${result.errors ? '，' + result.errors + ' 个失败' : ''}`, result.errors ? 'warning' : 'success');
+    _conflicts = [];
+    document.getElementById('btnConflicts').style.display = 'none';
+    document.getElementById('conflictModal').close();
+    loadDocuments();
+  } catch (e) {
+    toast('批量解决失败: ' + e.message, 'error');
   }
 }
 
@@ -1707,6 +1867,7 @@ async function init() {
   renderTree();
   await loadStatus();
   setInterval(loadStatus, 30000);
+  checkConflicts(); // 异步检测冲突，不阻塞初始化
 }
 
 document.addEventListener('keydown', e => { if ((e.ctrlKey||e.metaKey) && e.key==='s') { e.preventDefault(); saveDoc(); } });

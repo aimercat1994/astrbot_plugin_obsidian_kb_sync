@@ -232,6 +232,7 @@ def _default_metadata() -> dict:
     return {
         "fns_hash": "",          # FNS 返回的 contentHash（可能为空）
         "content_hash": "",      # 文件内容 MD5
+        "fns_content_hash": "",  # 上次从 FNS 同步时的内容 MD5（用于冲突检测）
         "size_kb": 0.0,          # 文件大小 KB
         "sync_to_kb": False,     # 是否标记推送到知识库
         "pre_chunk": True,       # 是否使用增量分块同步
@@ -531,6 +532,7 @@ class StagingManager:
             old_meta.update({
                 "fns_hash": fns_hash,
                 "content_hash": content_hash,
+                "fns_content_hash": content_hash,  # 记录 FNS 同步时的内容 hash
                 "size_kb": content_size_kb,
                 "staged_at": time.time(),
             })
@@ -634,6 +636,162 @@ class StagingManager:
         if _pc:
             await _pc("done", uploaded_count, len(to_upload), "")
         return result
+
+
+    # ── 冲突检测 ────────────────────────────────────────────────
+
+    async def detect_conflicts(self, fns_client: FNSClient,
+                                exclude_patterns: Optional[list[str]] = None) -> list[dict]:
+        """检测 FNS 和暂存区之间的冲突。
+
+        返回冲突列表，每项包含:
+        - path: 文档路径
+        - type: 冲突类型
+          - "both_modified": FNS 和暂存区都已修改
+          - "remote_modified": 仅 FNS 已修改
+          - "remote_deleted": FNS 已删除但暂存区仍有
+        - fns_hash: FNS 当前 hash
+        - local_hash: 暂存区当前 content_hash
+        - base_hash: 上次同步时的 fns_content_hash
+        """
+        from fnmatch import fnmatch
+
+        exclude_patterns = exclude_patterns or []
+        conflicts: list[dict] = []
+
+        def should_exclude(note_path: str) -> bool:
+            for pattern in exclude_patterns:
+                if fnmatch(note_path, pattern) or fnmatch(note_path.split("/")[-1], pattern):
+                    return True
+                for part in note_path.split("/"):
+                    if fnmatch(part, pattern):
+                        return True
+            return False
+
+        # 1. 获取 FNS 当前笔记列表（含 contentHash）
+        notes = await fns_client.list_notes()
+        fns_map: dict[str, dict] = {}
+        for n in notes:
+            p = n.get("path", "")
+            if p and not should_exclude(p):
+                fns_map[p] = n
+
+        # 2. 检测冲突
+        for path, meta in self._metadata.items():
+            if should_exclude(path):
+                continue
+
+            stored_fns_hash = meta.get("fns_hash", "")
+            local_hash = meta.get("content_hash", "")
+            base_hash = meta.get("fns_content_hash", "")  # 上次 FNS 同步时的 hash
+
+            if path not in fns_map:
+                # FNS 已删除
+                if local_hash and stored_fns_hash:
+                    conflicts.append({
+                        "path": path,
+                        "type": "remote_deleted",
+                        "fns_hash": "",
+                        "local_hash": local_hash,
+                        "base_hash": base_hash,
+                        "size_kb": meta.get("size_kb", 0),
+                    })
+                continue
+
+            fns_note = fns_map[path]
+            current_fns_hash = fns_note.get("contentHash", "")
+
+            # 无 hash 或 hash 未变 → 无冲突
+            if not current_fns_hash or current_fns_hash == stored_fns_hash:
+                continue
+
+            # FNS 已变化（current_fns_hash != stored_fns_hash）
+            # 判断暂存区是否也有本地修改
+            local_changed = bool(base_hash and local_hash != base_hash)
+
+            if local_changed:
+                conflict_type = "both_modified"
+            else:
+                conflict_type = "remote_modified"
+
+            conflicts.append({
+                "path": path,
+                "type": conflict_type,
+                "fns_hash": current_fns_hash,
+                "local_hash": local_hash,
+                "base_hash": base_hash,
+                "size_kb": meta.get("size_kb", 0),
+            })
+
+        # 按类型排序：both_modified 优先
+        type_order = {"both_modified": 0, "remote_modified": 1, "remote_deleted": 2}
+        conflicts.sort(key=lambda c: (type_order.get(c["type"], 9), c["path"]))
+
+        logger.info(f"Staging: 冲突检测完成，发现 {len(conflicts)} 个冲突")
+        return conflicts
+
+    async def resolve_conflict(self, path: str, resolution: str,
+                                fns_client: Optional[FNSClient] = None) -> dict:
+        """解决单个冲突。
+
+        resolution:
+        - "keep_fns": 用 FNS 版本覆盖暂存区
+        - "keep_local": 保留暂存区版本（更新 fns_hash 和 fns_content_hash）
+        - "skip": 不做任何操作
+        """
+        meta = self._metadata.get(path)
+        if not meta:
+            return {"error": f"文档 {path} 不在暂存区"}
+
+        if resolution == "skip":
+            return {"success": True, "action": "skipped"}
+
+        if resolution == "keep_fns":
+            # 从 FNS 重新拉取内容覆盖暂存区
+            if not fns_client:
+                return {"error": "需要 FNS 客户端"}
+            content = await fns_client.get_note(path)
+            if content is None:
+                return {"error": f"无法从 FNS 获取 {path}"}
+            content_bytes = content.encode("utf-8")
+            content_hash = hashlib.md5(content_bytes).hexdigest()
+            fp = self._doc_path(path)
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content, encoding="utf-8")
+            meta.update({
+                "fns_hash": meta.get("fns_hash", ""),
+                "content_hash": content_hash,
+                "fns_content_hash": content_hash,
+                "size_kb": len(content_bytes) / 1024,
+                "staged_at": time.time(),
+            })
+            await self.save_metadata()
+            logger.info(f"Staging: 冲突解决 keep_fns → {path}")
+            return {"success": True, "action": "kept_fns"}
+
+        if resolution == "keep_local":
+            # 保留暂存区版本，更新 base hash 为当前 local hash
+            local_hash = meta.get("content_hash", "")
+            meta["fns_content_hash"] = local_hash
+            await self.save_metadata()
+            logger.info(f"Staging: 冲突解决 keep_local → {path}")
+            return {"success": True, "action": "kept_local"}
+
+        return {"error": f"未知解决方式: {resolution}"}
+
+    async def resolve_conflicts_batch(self, conflicts: list[dict],
+                                       resolution: str,
+                                       fns_client: Optional[FNSClient] = None) -> dict:
+        """批量解决冲突。"""
+        results = {"resolved": 0, "errors": 0, "details": []}
+        for c in conflicts:
+            r = await self.resolve_conflict(c["path"], resolution, fns_client)
+            if r.get("success"):
+                results["resolved"] += 1
+            else:
+                results["errors"] += 1
+            results["details"].append({"path": c["path"], **r})
+        return results
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1188,6 +1346,44 @@ class Dashboard:
             history = await self.staging._load_sync_history()
             return jsonify(history)
 
+        @app.route("/api/conflicts")
+        async def api_conflicts():
+            fns = self.fns_client_factory()
+            try:
+                conflicts = await self.staging.detect_conflicts(fns, self.exclude_patterns)
+            finally:
+                await fns.close()
+            return jsonify({"conflicts": conflicts, "total": len(conflicts)})
+
+        @app.route("/api/conflicts/resolve", methods=["POST"])
+        async def api_resolve_conflict():
+            data = await request.get_json()
+            path = data.get("path", "")
+            resolution = data.get("resolution", "skip")
+            if not path:
+                return jsonify({"error": "path required"}), 400
+            fns = self.fns_client_factory()
+            try:
+                result = await self.staging.resolve_conflict(path, resolution, fns)
+            finally:
+                await fns.close()
+            return jsonify(result)
+
+        @app.route("/api/conflicts/resolve-batch", methods=["POST"])
+        async def api_resolve_conflicts_batch():
+            data = await request.get_json()
+            paths = data.get("paths", [])
+            resolution = data.get("resolution", "skip")
+            if not paths:
+                return jsonify({"error": "paths required"}), 400
+            conflicts = [{"path": p} for p in paths]
+            fns = self.fns_client_factory()
+            try:
+                result = await self.staging.resolve_conflicts_batch(conflicts, resolution, fns)
+            finally:
+                await fns.close()
+            return jsonify(result)
+
         @app.route("/api/status")
         async def api_status():
             return jsonify(self.staging.get_stats())
@@ -1339,6 +1535,9 @@ class ObsidianKBStagingPlugin(Star):
             (f"{plugin_prefix}/api/sync/kb",       "webui_api_sync_kb",      ["POST"]),
             (f"{plugin_prefix}/api/sync/history",  "webui_api_sync_history", ["GET"]),
             (f"{plugin_prefix}/api/sync/progress", "webui_api_sync_progress",["GET"]),
+            (f"{plugin_prefix}/api/conflicts",     "webui_api_conflicts",    ["GET"]),
+            (f"{plugin_prefix}/api/conflicts/resolve",      "webui_api_resolve_conflict",       ["POST"]),
+            (f"{plugin_prefix}/api/conflicts/resolve-batch","webui_api_resolve_conflicts_batch",["POST"]),
             (f"{plugin_prefix}/api/status",        "webui_api_status",       ["GET"]),
             (f"{plugin_prefix}/api/config",        "webui_api_config",       ["GET"]),
             (f"{plugin_prefix}/api/config/save",   "webui_api_config_save",  ["POST"]),
@@ -1463,6 +1662,44 @@ class ObsidianKBStagingPlugin(Star):
         stats["last_fns_sync"] = self._last_fns_sync
         stats["last_kb_sync"] = self._last_kb_sync
         return jsonify(stats)
+
+    async def webui_api_conflicts(self, **kwargs):
+        from quart import jsonify
+        fns = self._make_fns_client()
+        try:
+            conflicts = await self.staging.detect_conflicts(fns, self.exclude_patterns)
+        finally:
+            await fns.close()
+        return jsonify({"conflicts": conflicts, "total": len(conflicts)})
+
+    async def webui_api_resolve_conflict(self, **kwargs):
+        from quart import jsonify, request
+        data = await request.get_json()
+        path = data.get("path", "")
+        resolution = data.get("resolution", "skip")
+        if not path:
+            return jsonify({"error": "path required"}), 400
+        fns = self._make_fns_client()
+        try:
+            result = await self.staging.resolve_conflict(path, resolution, fns)
+        finally:
+            await fns.close()
+        return jsonify(result)
+
+    async def webui_api_resolve_conflicts_batch(self, **kwargs):
+        from quart import jsonify, request
+        data = await request.get_json()
+        paths = data.get("paths", [])
+        resolution = data.get("resolution", "skip")
+        if not paths:
+            return jsonify({"error": "paths required"}), 400
+        conflicts = [{"path": p} for p in paths]
+        fns = self._make_fns_client()
+        try:
+            result = await self.staging.resolve_conflicts_batch(conflicts, resolution, fns)
+        finally:
+            await fns.close()
+        return jsonify(result)
 
     # ── Config Schema（用于前端展示） ─────────────────────
     _CONFIG_SCHEMA = {

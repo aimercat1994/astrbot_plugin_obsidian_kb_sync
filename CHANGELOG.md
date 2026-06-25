@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.9.0] - 2026-06-25
+
+### ⚠️ 冲突检测
+- **自动冲突检测**：启动时和 FNS 同步后自动检测 FNS 与暂存区之间的版本差异
+- **三种冲突类型**：
+  - 🔴 双方修改：FNS 和暂存区都已修改（需用户决策）
+  - 🟡 FNS 已修改：仅 FNS 端有变更
+  - ⚫ FNS 已删除：FNS 已删除但暂存区仍有
+- **冲突解决操作**：
+  - 📥 用 FNS：从 FNS 重新拉取覆盖暂存区
+  - 💾 保留暂存：保留暂存区版本，标记为已确认
+  - 跳过：暂不处理
+- **批量解决**：支持「全部用 FNS」或「全部保留暂存」一键操作
+- **顶栏提示**：有冲突时显示 ⚠️ 冲突按钮和数量徽章
+
+### 🔧 后端
+- StagingManager 新增 `detect_conflicts()` / `resolve_conflict()` / `resolve_conflicts_batch()` 方法
+- 元数据新增 `fns_content_hash` 字段，记录上次 FNS 同步时的内容 hash
+- 新增 `GET /api/conflicts`、`POST /api/conflicts/resolve`、`POST /api/conflicts/resolve-batch` API 端点
+- WebUI 路由新增 3 条（共 17 条）
+
 ## [3.8.0] - 2026-06-25
 
 ### 📎 嵌入语法支持
