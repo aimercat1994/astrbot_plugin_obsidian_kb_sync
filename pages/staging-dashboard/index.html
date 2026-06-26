@@ -259,8 +259,21 @@ body {
 .code-block-wrapper pre {
   margin: 0; padding-top: 36px;
 }
+.code-block-wrapper pre,
+.code-block-wrapper pre code,
+.code-block-wrapper pre code * {
+  line-height: 1.6 !important;
+  font-size: 12px !important;
+}
+.code-block-wrapper .code-line-numbers {
+  font-size: 12px;
+}
+.code-block-wrapper .code-line-numbers span {
+  line-height: 1.6;
+  user-select: none;
+}
 .code-block-header {
-  position: absolute; top: 0; left: 0; right: 0;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 12px; font-size: 0.72rem;
   background: color-mix(in srgb, var(--color-base-300) 50%, transparent);
@@ -280,15 +293,19 @@ body {
 
 /* 行号 */
 .code-lines {
-  display: flex; user-select: none;
+  display: flex;
 }
 .code-line-numbers {
-  flex-shrink: 0; padding: 14px 0; text-align: right;
+  flex-shrink: 0; padding: 36px 0 14px 0; text-align: right;
   color: var(--color-base-content); opacity: 0.25;
   font-size: 0.75rem; line-height: 1.6;
   border-right: 1px solid var(--color-base-300);
   margin-right: 12px; padding-right: 10px;
   min-width: 2.5rem;
+  display: flex; flex-direction: column; white-space: pre;
+}
+.code-line-numbers span {
+  display: block;
 }
 .code-content { flex: 1; overflow-x: auto; }
 
@@ -519,6 +536,7 @@ body {
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnSyncFns" onclick="syncFns()">📥 从 FNS 同步</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="syncToFns()">📤 同步到 FNS</button>
     <button class="btn btn-sm btn-success text-white" id="btnSyncKb" onclick="syncKb()">📤 同步到知识库</button>
+    <button class="btn btn-sm btn-warning text-white" onclick="rebuildStaging()">🔄 重建暂存</button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSyncHistory()">📋 历史</button>
     <button class="btn btn-sm btn-ghost border border-base-300" id="btnConflicts" onclick="openConflicts()" style="display:none;">⚠️ 冲突 <span class="badge badge-sm badge-warning" id="conflictCount">0</span></button>
     <button class="btn btn-sm btn-ghost border border-base-300" onclick="openSettings()">⚙️ 设置</button>
@@ -1054,9 +1072,52 @@ function renderMarkdown(text) {
 function mdToHtml(md) {
   if (!md) return '';
   
+  // 0. 提取并渲染 YAML frontmatter
+  let frontmatterHtml = '';
+  let body = md;
+  const fmMatch = md.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (fmMatch) {
+    body = md.slice(fmMatch[0].length);
+    const fm = {};
+    let currentKey = '';
+    let inArray = false;
+    fmMatch[1].split('\n').forEach(line => {
+      // 数组项
+      if (/^\s*-\s+"?(.+?)"?\s*$/.test(line) && currentKey) {
+        const val = line.match(/^\s*-\s+"?(.+?)"?\s*$/)[1];
+        if (!Array.isArray(fm[currentKey])) fm[currentKey] = [];
+        fm[currentKey].push(val);
+        inArray = true;
+        return;
+      }
+      inArray = false;
+      const m = line.match(/^(\w[\w-]*):\s*"?([^"]*)"?\s*$/);
+      if (m) {
+        currentKey = m[1];
+        fm[currentKey] = m[2] || '';
+      }
+    });
+    // 渲染为元数据卡片
+    const labels = {
+      title: '📌 标题', source: '🔗 来源', author: '✍️ 作者',
+      published: '📅 发布', created: '📅 创建', description: '📝 描述',
+      tags: '🏷️ 标签', category: '📂 分类', url: '🔗 链接',
+    };
+    const rows = Object.entries(fm).filter(([k, v]) => v && (!Array.isArray(v) || v.length)).map(([k, v]) => {
+      const label = labels[k] || k;
+      let val = Array.isArray(v) ? v.map(t => `<span class="badge badge-sm badge-ghost">${esc(t)}</span>`).join(' ') : esc(v);
+      if (k === 'source' || k === 'url') val = `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`;
+      if (k === 'title') val = `<strong>${esc(v)}</strong>`;
+      return `<tr><td style="opacity:0.6;white-space:nowrap;padding:2px 12px 2px 0;">${label}</td><td style="padding:2px 0;">${val}</td></tr>`;
+    }).join('');
+    if (rows) {
+      frontmatterHtml = `<div class="callout callout-type-info" style="margin-bottom:1rem;"><table style="font-size:0.84rem;border-collapse:collapse;">${rows}</table></div>`;
+    }
+  }
+  
   // 1. 预处理：保护数学公式不被 marked 处理
   const mathBlocks = [];
-  let processed = md.replace(/\$\$([\s\S]*?)\$\$/g, (match, p1) => {
+  let processed = body.replace(/\$\$([\s\S]*?)\$\$/g, (match, p1) => {
     mathBlocks.push({ type: 'block', content: p1.trim() });
     return `%%MATH_BLOCK_${mathBlocks.length - 1}%%`;
   });
@@ -1158,19 +1219,30 @@ function mdToHtml(md) {
     }
   });
   
-  return html;
+  return frontmatterHtml + html;
 }
 
 function copyCode(btn) {
   const code = btn.dataset.code;
-  navigator.clipboard.writeText(code).then(() => {
+  const _showOk = () => {
     btn.classList.add('copied');
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
     setTimeout(() => {
       btn.classList.remove('copied');
       btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制';
     }, 2000);
-  });
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(_showOk);
+  } else {
+    // HTTP fallback
+    const ta = document.createElement('textarea');
+    ta.value = code; ta.style.cssText = 'position:fixed;left:-9999px;';
+    document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    _showOk();
+  }
 }
 
 function handleWikilink(page) {
@@ -1373,6 +1445,27 @@ function postRender() {
       }
     });
   }
+  
+  // 代码块兜底：强制校正行号和复制按钮样式
+  document.querySelectorAll('.code-block-wrapper').forEach(wrapper => {
+    const lines = wrapper.querySelector('.code-lines');
+    const lineNums = wrapper.querySelector('.code-line-numbers');
+    const header = wrapper.querySelector('.code-block-header');
+    const pre = wrapper.querySelector('pre');
+    if (lines) { lines.style.display = 'flex'; }
+    if (lineNums) {
+      lineNums.style.display = 'flex';
+      lineNums.style.flexDirection = 'column';
+      lineNums.style.paddingTop = '36px';
+    }
+    if (lineNums) {
+      lineNums.querySelectorAll('span').forEach(s => { s.style.display = 'block'; });
+    }
+    if (header) { header.style.position = 'absolute'; header.style.zIndex = '2'; }
+    if (pre) { pre.style.paddingTop = '36px'; pre.style.margin = '0'; pre.style.lineHeight = '1.6'; pre.style.fontSize = '12px'; }
+    // 强制所有子元素 line-height 和 font-size 一致
+    if (pre) pre.querySelectorAll('*').forEach(el => { el.style.lineHeight = '1.6'; el.style.fontSize = '12px'; });
+  });
 }
 
 /* Lightbox */
@@ -1599,6 +1692,18 @@ async function syncToFns() {
     toast(`推送 FNS 完成: 成功 ${data.uploaded||0}, 错误 ${data.errors||0}, 耗时 ${(data.duration||0).toFixed(1)}s`, data.errors ? 'warning' : 'success');
   } catch (e) { toast('推送 FNS 失败: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = '📤 同步到 FNS'; if(es) es.close(); closeProgress(); }
+}
+
+async function rebuildStaging() {
+  const mode = confirm('🔄 重建暂存元数据\n\n将清除所有文档的知识库关联，下次「同步到知识库」将全量重新上传。\n\n点击「确定」仅重建 KB 关联（推荐）\n点击「取消」放弃操作');
+  if (!mode) return;
+  try {
+    const data = await api('api/staging/rebuild', { method: 'POST', body: JSON.stringify({ clear_kb: true }) });
+    if (data.error) { toast('重建失败: ' + data.error, 'error'); return; }
+    toast(`重建完成: ${data.affected || 0} 条文档已重置，模式: ${(data.mode||[]).join('+')}`, 'success');
+    await Promise.all([loadStatus(), loadDocuments()]);
+    renderTree();
+  } catch (e) { toast('重建失败: ' + e.message, 'error'); }
 }
 
 /* ===== Sync History ===== */

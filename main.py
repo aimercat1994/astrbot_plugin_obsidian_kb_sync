@@ -338,6 +338,31 @@ class StagingManager:
         self._metadata[path].update(updates)
         return True
 
+    def rebuild_metadata(self, clear_kb: bool = True, clear_fns: bool = False) -> int:
+        """重建暂存元数据，返回受影响的文档数。
+
+        clear_kb=True: 清除 kb_doc_id / chunk_hashes / last_sync，
+                       下次 KB 同步将全量重新上传。
+        clear_fns=True: 额外清除 fns_hash / content_hash / fns_content_hash，
+                        下次 FNS 同步将重新拉取所有内容。
+        """
+        count = 0
+        for path, meta in self._metadata.items():
+            changed = False
+            if clear_kb:
+                for key in ("kb_doc_id", "chunk_hashes", "last_sync"):
+                    if meta.get(key):
+                        meta[key] = [] if key == "chunk_hashes" else ("" if key == "kb_doc_id" else 0.0)
+                        changed = True
+            if clear_fns:
+                for key in ("fns_hash", "content_hash", "fns_content_hash"):
+                    if meta.get(key):
+                        meta[key] = ""
+                        changed = True
+            if changed:
+                count += 1
+        return count
+
     def list_documents(self, folder: Optional[str] = None) -> list[dict]:
         """列出暂存文档及其元数据。可选按文件夹过滤。"""
         results = []
@@ -943,14 +968,17 @@ class SyncEngine:
                     pass
 
             for i in changed_indices:
-                await vec_db.insert(
-                    content=new_chunks[i],
-                    metadata={
-                        "kb_id": self.kb_id,
-                        "kb_doc_id": old_doc_id,
-                        "chunk_index": i,
-                    },
-                )
+                try:
+                    await vec_db.insert(
+                        content=new_chunks[i],
+                        metadata={
+                            "kb_id": self.kb_id,
+                            "kb_doc_id": old_doc_id,
+                            "chunk_index": i,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Staging: chunk {i} embedding 失败 ({path}): {e}")
 
             # 更新文档元数据
             try:
@@ -1307,6 +1335,21 @@ class Dashboard:
             result = await self.sync_engine.sync_to_kb(_progress)
             return jsonify(result)
 
+        @app.route("/api/staging/rebuild", methods=["POST"])
+        async def api_rebuild_staging():
+            data = await request.get_json() or {}
+            clear_kb = data.get("clear_kb", True)
+            clear_fns = data.get("clear_fns", False)
+            count = self.staging.rebuild_metadata(clear_kb=clear_kb, clear_fns=clear_fns)
+            await self.staging.save_metadata()
+            mode = []
+            if clear_kb:
+                mode.append("KB")
+            if clear_fns:
+                mode.append("FNS")
+            logger.info(f"Staging: 重建元数据完成 | 模式: {'+'.join(mode)} | 影响 {count} 条文档")
+            return jsonify({"success": True, "affected": count, "mode": mode})
+
         @app.route("/api/sync/to-fns", methods=["POST"])
         async def api_sync_to_fns():
             data = await request.get_json() or {}
@@ -1538,6 +1581,7 @@ class ObsidianKBStagingPlugin(Star):
             (f"{plugin_prefix}/api/conflicts",     "webui_api_conflicts",    ["GET"]),
             (f"{plugin_prefix}/api/conflicts/resolve",      "webui_api_resolve_conflict",       ["POST"]),
             (f"{plugin_prefix}/api/conflicts/resolve-batch","webui_api_resolve_conflicts_batch",["POST"]),
+            (f"{plugin_prefix}/api/staging/rebuild",  "webui_api_rebuild_staging", ["POST"]),
             (f"{plugin_prefix}/api/status",        "webui_api_status",       ["GET"]),
             (f"{plugin_prefix}/api/config",        "webui_api_config",       ["GET"]),
             (f"{plugin_prefix}/api/config/save",   "webui_api_config_save",  ["POST"]),
@@ -1620,6 +1664,22 @@ class ObsidianKBStagingPlugin(Star):
         if "error" not in result:
             self._last_fns_sync = time.time()
         return jsonify(result)
+
+    async def webui_api_rebuild_staging(self, **kwargs):
+        """重建暂存元数据：清除 KB 关联字段，下次同步全量重传。"""
+        from quart import jsonify, request
+        data = await request.get_json() or {}
+        clear_kb = data.get("clear_kb", True)
+        clear_fns = data.get("clear_fns", False)
+        count = self.staging.rebuild_metadata(clear_kb=clear_kb, clear_fns=clear_fns)
+        await self.staging.save_metadata()
+        mode = []
+        if clear_kb:
+            mode.append("KB")
+        if clear_fns:
+            mode.append("FNS")
+        logger.info(f"Staging: 重建元数据完成 | 模式: {'+'.join(mode)} | 影响 {count} 条文档")
+        return jsonify({"success": True, "affected": count, "mode": mode})
 
     async def webui_api_sync_kb(self, **kwargs):
         from quart import jsonify
